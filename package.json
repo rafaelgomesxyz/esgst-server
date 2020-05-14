@@ -4,7 +4,7 @@
 	"scripts": {
 		"start": "node ./index.js",
 		"start-dev": "nodemon ./index.js",
-		"docs": "apidoc -i ./app/esgst -o ../docs"
+		"docs": "apidoc -i ./app/esgst -o ./docs"
 	},
 	"dependencies": {
 		"cors": "^2.8.5",

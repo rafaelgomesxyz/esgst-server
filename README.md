@@ -8,4 +8,4 @@ Available at https://rafaelgssa.com. Automatically deployed with Umbler on every
 
 ## Documentation
 
-https://rafaelgssa.github.io/esgst/
+https://rafaelgssa.github.io/server/
