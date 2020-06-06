@@ -1,5 +1,5 @@
-const Connection = require('../../class/Connection');
 const CustomError = require('../../class/CustomError');
+const Pool = require('../../class/Connection');
 const Utils = require('../../class/Utils');
 const Game = require('./Game');
 
@@ -46,16 +46,23 @@ class SgIds {
 	 * @param {import('express').Response} res
 	 */
 	static async get(req, res) {
-		const connection = new Connection();
-		await connection.connect();
+		/** @type {import('mysql').PoolConnection} */
+		let connection = null;
 		try {
+			connection = await Pool.getConnection();
 			const result = await SgIds._find(connection, req);
+			if (connection) {
+				connection.release();
+			}
 			res.status(200)
 				.json({
 					error: null,
 					result,
 				});
 		} catch (err) {
+			if (connection) {
+				connection.release();
+			}
 			console.log(`GET ${req.route.path} failed with params ${JSON.stringify(req.params)} and query ${JSON.stringify(req.query)}: ${err.message} ${err.stack ? err.stack.replace(/\n/g, ' ') : ''}`);
 			if (!err.status) {
 				err.status = 500;
@@ -67,11 +74,10 @@ class SgIds {
 					result: null,
 				});
 		}
-		await connection.disconnect();
 	}
 
 	/**
-	 * @param {import('../../class/Connection')} connection
+	 * @param {import('mysql').PoolConnection} connection
 	 * @param {import('express').Request} req
 	 */
 	static async _find(connection, req) {
@@ -112,7 +118,7 @@ class SgIds {
 			if (params[`${type}_ids`]) {
 				conditions.push(`(${ids.map(id => `g_ts.${type}_id = ${connection.escape(id)}`).join(' OR ')})`);
 			}
-			const rows = await connection.query(`
+			const rows = await Pool.query(connection, `
 				SELECT ${[
 					`g_ts.${type}_id`,
 					'g_ts.sg_id',

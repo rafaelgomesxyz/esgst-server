@@ -1,28 +1,35 @@
 const fs = require('fs');
 const path = require('path');
 
-const Connection = require('../class/Connection');
+const Pool = require('../class/Connection');
 const Request = require('../class/Request');
 const Utils = require('../class/Utils');
 
 const jobJson = require('./uh.json');
 
-let connection = null;
-
 doUhCronJob();
 
 async function doUhCronJob() {
+	/** @type {import('mysql').PoolConnection} */
+	let connection = null;
 	try {
-		await updateUh();
-	} catch (err) {
-		console.log(`UH histories update failed: ${err}`);
-		if (connection && connection.inTransaction) {
-			await connection.rollback();
+		connection = await Pool.getConnection();
+		await updateUh(connection);
+		if (connection) {
+			connection.release();
 		}
+	} catch (err) {
+		if (connection) {
+			connection.release();
+		}
+		console.log(`UH histories update failed: ${err}`);
 	}
 }
 
-async function updateUh() {
+/**
+ * @param {import('mysql').PoolConnection} connection 
+ */
+async function updateUh(connection) {
 	const now = Math.trunc(Date.now() / 1e3);
 	let index = jobJson.index;
 	let ended = false;
@@ -30,14 +37,11 @@ async function updateUh() {
 		console.log('Initializing...');
 	}
 	do {
-		connection = new Connection();
-		await connection.connect();
-		const rows = await connection.query(`
+		const rows = await Pool.query(connection, `
 			SELECT steam_id, usernames, last_check, last_update
 			FROM users__uh
 			LIMIT ${index}, 100
 		`);
-		await connection.disconnect();
 		ended = rows.length === 0;
 		if (!ended) {
 			const uh = [];
@@ -68,16 +72,18 @@ async function updateUh() {
 				}
 			}
 			if (uh.length > 0) {
-				connection = new Connection();
-				await connection.connect();
-				await connection.beginTransaction();
-				await connection.query(`
-					INSERT INTO users__uh (steam_id, usernames, last_check, last_update)
-					VALUES ${uh.map(values => `(${connection.escape(values.steam_id)}, ${connection.escape(values.usernames)}, ${connection.escape(values.last_check)}, ${connection.escape(values.last_update)})`).join(', ')}
-					ON DUPLICATE KEY UPDATE usernames = VALUES(usernames), last_check = VALUES(last_check), last_update = VALUES(last_update)
-				`);
-				await connection.commit();
-				await connection.disconnect();
+				await Pool.beginTransaction(connection);
+				try {
+					await Pool.query(connection, `
+						INSERT INTO users__uh (steam_id, usernames, last_check, last_update)
+						VALUES ${uh.map(values => `(${connection.escape(values.steam_id)}, ${connection.escape(values.usernames)}, ${connection.escape(values.last_check)}, ${connection.escape(values.last_update)})`).join(', ')}
+						ON DUPLICATE KEY UPDATE usernames = VALUES(usernames), last_check = VALUES(last_check), last_update = VALUES(last_update)
+					`);
+					await Pool.commit(connection);
+				} catch (err) {
+					await Pool.rollback(connection);
+					throw err;
+				}
 			}
 		}
 		index += 100;

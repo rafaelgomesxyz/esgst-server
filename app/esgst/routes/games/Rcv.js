@@ -1,5 +1,5 @@
-const Connection = require('../../class/Connection');
 const CustomError = require('../../class/CustomError');
+const Pool = require('../../class/Connection');
 const Utils = require('../../class/Utils');
 const Game = require('./Game');
 
@@ -107,16 +107,23 @@ class Rcv {
 	 * @param {import('express').Response} res
 	 */
 	static async get(req, res) {
-		const connection = new Connection();
-		await connection.connect();
+		/** @type {import('mysql').PoolConnection} */
+		let connection = null;
 		try {
+			connection = await Pool.getConnection();
 			const result = await Rcv._find(connection, req);
+			if (connection) {
+				connection.release();
+			}
 			res.status(200)
 				.json({
 					error: null,
 					result,
 				});
 		} catch (err) {
+			if (connection) {
+				connection.release();
+			}
 			console.log(`GET ${req.route.path} failed with params ${JSON.stringify(req.params)} and query ${JSON.stringify(req.query)}: ${err.message} ${err.stack ? err.stack.replace(/\n/g, ' ') : ''}`);
 			if (!err.status) {
 				err.status = 500;
@@ -128,11 +135,10 @@ class Rcv {
 					result: null,
 				});
 		}
-		await connection.disconnect();
 	}
 
 	/**
-	 * @param {import('../../class/Connection')} connection
+	 * @param {import('mysql').PoolConnection} connection
 	 * @param {import('express').Request} req
 	 */
 	static async _find(connection, req) {
@@ -254,7 +260,7 @@ class Rcv {
 			if (params.date_before_or_equal) {
 				conditions.push(`g_tr.effective_date <= ${connection.escape(Math.trunc(new Date(`${params.date_before_or_equal}T00:00:00.000Z`).getTime() / 1e3))}`);
 			}
-			const rows = await connection.query(`
+			const rows = await Pool.query(connection, `
 				SELECT ${[
 					`g_tr.${type}_id`,
 					...(params.show_name ? ['g_tn.name'] : []),
@@ -296,7 +302,7 @@ class Rcv {
 				result.not_found[`${type}s`].push(id);
 			}
 		}
-		const timestampRows = await connection.query('SELECT name, date FROM timestamps WHERE name = "rcv_last_update_from_sg" OR name = "rcv_last_update_from_sgtools"');
+		const timestampRows = await Pool.query(connection, 'SELECT name, date FROM timestamps WHERE name = "rcv_last_update_from_sg" OR name = "rcv_last_update_from_sgtools"');
 		for (const timestampRow of timestampRows) {
 			switch (timestampRow.name) {
 				case 'rcv_last_update_from_sg': {

@@ -1,40 +1,38 @@
 const mysql = require('mysql');
 const defaultConfig = require('../config').connection;
 
-class Connection {
+class _Pool {
 	constructor(config = {}) {
-		/** @type {import('mysql').Connection} */
-		this._connection = mysql.createConnection(Object.assign({}, defaultConfig, config));
-		this.inTransaction = false;
+		/** @type {import('mysql').Pool} */
+		this._pool = mysql.createPool({
+			...defaultConfig,
+			...config,
+			connectionLimit: 5,
+		});
 	}
 
-	connect() {
+	/**
+	 * @returns {Promise<import('mysql').PoolConnection>}
+	 */
+	getConnection() {
 		return new Promise((resolve, reject) => {
-			this._connection.connect(err => {
+			this._pool.getConnection((err, connection) => {
 				if (err) {
 					reject(err);
 					return;
 				}
-				resolve();
+				resolve(connection);
 			});
-		});
+		})
 	}
 
-	disconnect() {
+	/**
+	 * @param {import('mysql').PoolConnection} connection 
+	 * @param {*} sql 
+	 */
+	query(connection, sql) {
 		return new Promise((resolve, reject) => {
-			this._connection.end(err => {
-				if (err) {
-					reject(err);
-					return;
-				}
-				resolve();
-			});
-		});
-	}
-
-	query(sql) {
-		return new Promise((resolve, reject) => {
-			this._connection.query(sql, (err, rows) => {
+			connection.query(sql, (err, rows) => {
 				if (err) {
 					reject(err);
 					return;
@@ -44,27 +42,12 @@ class Connection {
 		})
 	}
 
-	escape(value) {
-		return this._connection.escape(value);
-	}
-
-	beginTransaction() {
+	/**
+	 * @param {import('mysql').PoolConnection} connection 
+	 */
+	beginTransaction(connection) {
 		return new Promise((resolve, reject) => {
-			this._connection.beginTransaction(err => {
-				if (err) {
-					reject(err);
-					return;
-				}
-				this.inTransaction = true;
-				resolve();
-			});
-		});
-	}
-
-	commit() {
-		return new Promise((resolve, reject) => {
-			this._connection.commit(err => {
-				this.inTransaction = false;
+			connection.beginTransaction(err => {
 				if (err) {
 					reject(err);
 					return;
@@ -74,10 +57,27 @@ class Connection {
 		});
 	}
 
-	rollback() {
+	/**
+	 * @param {import('mysql').PoolConnection} connection 
+	 */
+	commit(connection) {
 		return new Promise((resolve, reject) => {
-			this._connection.rollback(err => {
-				this.inTransaction = false;
+			connection.commit(err => {
+				if (err) {
+					reject(err);
+					return;
+				}
+				resolve();
+			});
+		});
+	}
+
+	/**
+	 * @param {import('mysql').PoolConnection} connection 
+	 */
+	rollback(connection) {
+		return new Promise((resolve, reject) => {
+			connection.rollback(err => {
 				if (err) {
 					reject(err);
 					return;
@@ -88,4 +88,6 @@ class Connection {
 	}
 }
 
-module.exports = Connection;
+const Pool = new _Pool();
+
+module.exports = Pool;

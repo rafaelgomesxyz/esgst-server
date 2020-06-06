@@ -1,4 +1,5 @@
 const CustomError = require('../../class/CustomError');
+const Pool = require('../../class/Connection');
 const Request = require('../../class/Request');
 const Utils = require('../../class/Utils');
 
@@ -46,7 +47,7 @@ const Utils = require('../../class/Utils');
 
 class App {
 	/**
-	 * @param {import('../../class/Connection')} connection
+	 * @param {import('mysql').PoolConnection} connection
 	 * @param {import('express').Request} req
 	 * @param {Array<number>} ids
 	 */
@@ -92,7 +93,7 @@ class App {
 				}
 			}
 		}
-		const rows = await connection.query(`
+		const rows = await Pool.query(connection, `
 			SELECT ${[
 				'g_a.app_id',
 				'g_a.last_update',
@@ -243,7 +244,7 @@ class App {
 	}
 
 	/**
-	 * @param {import('../../class/Connection')} connection
+	 * @param {import('mysql').PoolConnection} connection
 	 * @param {number} appId
 	 */
 	static async fetch(connection, appId) {
@@ -340,57 +341,62 @@ class App {
 				bundles.push(parseInt(element.dataset.dsBundleid));
 			}
 		}
-		await connection.beginTransaction();
-		const columns = Object.keys(app);
-		const values = Object.values(app);
-		await connection.query(`
-			INSERT INTO games__app (${columns.join(', ')})
-			VALUES (${values.map(value => connection.escape(value)).join(', ')})
-			ON DUPLICATE KEY UPDATE ${columns.map(column => `${column} = VALUES(${column})`).join(', ')}
-		`);
-		await connection.query(`
-			INSERT IGNORE INTO games__app_name (app_id, name)
-			VALUES (${connection.escape(appId)}, ${connection.escape(apiData.name)})
-		`);
-		if (genres.length > 0) {
-			await connection.query(`
-				INSERT IGNORE INTO games__genre (genre_id, name)
-				VALUES ${genres.map(genre => `(${connection.escape(genre.id)}, ${connection.escape(genre.name)})`).join(', ')}
+		await Pool.beginTransaction(connection);
+		try {
+			const columns = Object.keys(app);
+			const values = Object.values(app);
+			await Pool.query(connection, `
+				INSERT INTO games__app (${columns.join(', ')})
+				VALUES (${values.map(value => connection.escape(value)).join(', ')})
+				ON DUPLICATE KEY UPDATE ${columns.map(column => `${column} = VALUES(${column})`).join(', ')}
 			`);
-			await connection.query(`
-				INSERT IGNORE INTO games__app_genre (app_id, genre_id)
-				VALUES ${genres.map(genre => `(${connection.escape(appId)}, ${connection.escape(genre.id)})`).join(', ')}
+			await Pool.query(connection, `
+				INSERT IGNORE INTO games__app_name (app_id, name)
+				VALUES (${connection.escape(appId)}, ${connection.escape(apiData.name)})
 			`);
+			if (genres.length > 0) {
+				await Pool.query(connection, `
+					INSERT IGNORE INTO games__genre (genre_id, name)
+					VALUES ${genres.map(genre => `(${connection.escape(genre.id)}, ${connection.escape(genre.name)})`).join(', ')}
+				`);
+				await Pool.query(connection, `
+					INSERT IGNORE INTO games__app_genre (app_id, genre_id)
+					VALUES ${genres.map(genre => `(${connection.escape(appId)}, ${connection.escape(genre.id)})`).join(', ')}
+				`);
+			}
+			if (tags.length > 0) {
+				await Pool.query(connection, `
+					INSERT IGNORE INTO games__tag (tag_id, name)
+					VALUES ${tags.map(tag => `(${connection.escape(tag.id)}, ${connection.escape(tag.name)})`).join(', ')}
+				`);
+				await Pool.query(connection, `
+					INSERT IGNORE INTO games__app_tag (app_id, tag_id)
+					VALUES ${tags.map(tag => `(${connection.escape(appId)}, ${connection.escape(tag.id)})`).join(', ')}
+				`);
+			}
+			if (base || dlcs.length > 0) {
+				await Pool.query(connection, `
+					INSERT IGNORE INTO games__dlc (dlc_id, app_id)
+					VALUES ${base ? `(${connection.escape(appId)}, ${connection.escape(base)})` : dlcs.map(dlcId => `(${connection.escape(dlcId)}, ${connection.escape(appId)})`).join(', ')}
+				`);
+			}
+			if (subs.length > 0) {
+				await Pool.query(connection, `
+					INSERT IGNORE INTO games__sub_app (sub_id, app_id)
+					VALUES ${subs.map(subId => `(${connection.escape(subId)}, ${connection.escape(appId)})`).join(', ')}
+				`);
+			}
+			if (bundles.length > 0) {
+				await Pool.query(connection, `
+					INSERT IGNORE INTO games__bundle_app (bundle_id, app_id)
+					VALUES ${bundles.map(bundleId => `(${connection.escape(bundleId)}, ${connection.escape(appId)})`).join(', ')}
+				`);
+			}
+			await Pool.commit(connection);
+		} catch (err) {
+			await Pool.rollback(connection);
+			throw err;
 		}
-		if (tags.length > 0) {
-			await connection.query(`
-				INSERT IGNORE INTO games__tag (tag_id, name)
-				VALUES ${tags.map(tag => `(${connection.escape(tag.id)}, ${connection.escape(tag.name)})`).join(', ')}
-			`);
-			await connection.query(`
-				INSERT IGNORE INTO games__app_tag (app_id, tag_id)
-				VALUES ${tags.map(tag => `(${connection.escape(appId)}, ${connection.escape(tag.id)})`).join(', ')}
-			`);
-		}
-		if (base || dlcs.length > 0) {
-			await connection.query(`
-				INSERT IGNORE INTO games__dlc (dlc_id, app_id)
-				VALUES ${base ? `(${connection.escape(appId)}, ${connection.escape(base)})` : dlcs.map(dlcId => `(${connection.escape(dlcId)}, ${connection.escape(appId)})`).join(', ')}
-			`);
-		}
-		if (subs.length > 0) {
-			await connection.query(`
-				INSERT IGNORE INTO games__sub_app (sub_id, app_id)
-				VALUES ${subs.map(subId => `(${connection.escape(subId)}, ${connection.escape(appId)})`).join(', ')}
-			`);
-		}
-		if (bundles.length > 0) {
-			await connection.query(`
-				INSERT IGNORE INTO games__bundle_app (bundle_id, app_id)
-				VALUES ${bundles.map(bundleId => `(${connection.escape(bundleId)}, ${connection.escape(appId)})`).join(', ')}
-			`);
-		}
-		await connection.commit();
 	}
 }
 

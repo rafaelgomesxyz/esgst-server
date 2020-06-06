@@ -1,4 +1,5 @@
 const CustomError = require('../../class/CustomError');
+const Pool = require('../../class/Connection');
 const Request = require('../../class/Request');
 const Utils = require('../../class/Utils');
 
@@ -25,7 +26,7 @@ const Utils = require('../../class/Utils');
 
 class Sub {
 	/**
-	 * @param {import('../../class/Connection')} connection
+	 * @param {import('mysql').PoolConnection} connection
 	 * @param {import('express').Request} req
 	 * @param {Array<number>} ids
 	 */
@@ -55,7 +56,7 @@ class Sub {
 				}
 			}
 		}
-		const rows = await connection.query(`
+		const rows = await Pool.query(connection, `
 			SELECT ${[
 				'g_s.sub_id',
 				'g_s.last_update',
@@ -112,7 +113,7 @@ class Sub {
 	}
 
 	/**
-	 * @param {import('../../class/Connection')} connection
+	 * @param {import('mysql').PoolConnection} connection
 	 * @param {number} subId
 	 */
 	static async fetch(connection, subId) {
@@ -151,25 +152,30 @@ class Sub {
 			}
 		}
 		const apps = apiData.apps ? apiData.apps.map(item => parseInt(item.id)) : [];
-		await connection.beginTransaction();
-		const columns = Object.keys(sub);
-		const values = Object.values(sub);
-		await connection.query(`
-			INSERT INTO games__sub (${columns.join(', ')})
-			VALUES (${values.map(value => connection.escape(value)).join(', ')})
-			ON DUPLICATE KEY UPDATE ${columns.map(column => `${column} = VALUES(${column})`).join(', ')}
-		`);
-		await connection.query(`
-			INSERT IGNORE INTO games__sub_name (sub_id, name)
-			VALUES (${connection.escape(subId)}, ${connection.escape(apiData.name)})
-		`);
-		if (apps.length > 0) {
-			await connection.query(`
-				INSERT IGNORE INTO games__sub_app (sub_id, app_id)
-				VALUES ${apps.map(appId => `(${connection.escape(subId)}, ${connection.escape(appId)})`).join(', ')}
+		await Pool.beginTransaction(connection);
+		try {
+			const columns = Object.keys(sub);
+			const values = Object.values(sub);
+			await Pool.query(connection, `
+				INSERT INTO games__sub (${columns.join(', ')})
+				VALUES (${values.map(value => connection.escape(value)).join(', ')})
+				ON DUPLICATE KEY UPDATE ${columns.map(column => `${column} = VALUES(${column})`).join(', ')}
 			`);
+			await Pool.query(connection, `
+				INSERT IGNORE INTO games__sub_name (sub_id, name)
+				VALUES (${connection.escape(subId)}, ${connection.escape(apiData.name)})
+			`);
+			if (apps.length > 0) {
+				await Pool.query(connection, `
+					INSERT IGNORE INTO games__sub_app (sub_id, app_id)
+					VALUES ${apps.map(appId => `(${connection.escape(subId)}, ${connection.escape(appId)})`).join(', ')}
+				`);
+			}
+			await Pool.commit(connection);
+		} catch (err) {
+			await Pool.rollback(connection);
+			throw err;
 		}
-		await connection.commit();
 	}
 }
 

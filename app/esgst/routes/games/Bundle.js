@@ -1,4 +1,5 @@
 const CustomError = require('../../class/CustomError');
+const Pool = require('../../class/Connection');
 const Request = require('../../class/Request');
 const Utils = require('../../class/Utils');
 
@@ -22,7 +23,7 @@ const Utils = require('../../class/Utils');
 
 class Bundle {
 	/**
-	 * @param {import('../../class/Connection')} connection
+	 * @param {import('mysql').PoolConnection} connection
 	 * @param {import('express').Request} req
 	 * @param {Array<number>} ids
 	 */
@@ -49,7 +50,7 @@ class Bundle {
 				}
 			}
 		}
-		const rows = await connection.query(`
+		const rows = await Pool.query(connection, `
 			SELECT ${[
 				'g_b.bundle_id',
 				'g_b.last_update',
@@ -97,7 +98,7 @@ class Bundle {
 	}
 
 	/**
-	 * @param {import('../../class/Connection')} connection
+	 * @param {import('mysql').PoolConnection} connection
 	 * @param {number} bundleId
 	 */
 	static async fetch(connection, bundleId) {
@@ -126,27 +127,32 @@ class Bundle {
 				apps.push(parseInt(element.dataset.dsAppid));
 			}
 		}
-		await connection.beginTransaction();
-		const columns = Object.keys(bundle);
-		const values = Object.values(bundle);
-		await connection.query(`
-			INSERT INTO games__bundle (${columns.join(', ')})
-			VALUES (${values.map(value => connection.escape(value)).join(', ')})
-			ON DUPLICATE KEY UPDATE ${columns.map(column => `${column} = VALUES(${column})`).join(', ')}
-		`);
-		if (bundleName) {
-			await connection.query(`
-				INSERT IGNORE INTO games__bundle_name (bundle_id, name)
-				VALUES (${connection.escape(bundleId)}, ${connection.escape(bundleName)})
+		await Pool.beginTransaction(connection);
+		try {
+			const columns = Object.keys(bundle);
+			const values = Object.values(bundle);
+			await Pool.query(connection, `
+				INSERT INTO games__bundle (${columns.join(', ')})
+				VALUES (${values.map(value => connection.escape(value)).join(', ')})
+				ON DUPLICATE KEY UPDATE ${columns.map(column => `${column} = VALUES(${column})`).join(', ')}
 			`);
+			if (bundleName) {
+				await Pool.query(connection, `
+					INSERT IGNORE INTO games__bundle_name (bundle_id, name)
+					VALUES (${connection.escape(bundleId)}, ${connection.escape(bundleName)})
+				`);
+			}
+			if (apps.length > 0) {
+				await Pool.query(connection, `
+					INSERT IGNORE INTO games__bundle_app (bundle_id, app_id)
+					VALUES ${apps.map(appId => `(${connection.escape(bundleId)}, ${connection.escape(appId)})`).join(', ')}
+				`);
+			}
+			await Pool.commit(connection);
+		} catch (err) {
+			await Pool.rollback(connection);
+			throw err;
 		}
-		if (apps.length > 0) {
-			await connection.query(`
-				INSERT IGNORE INTO games__bundle_app (bundle_id, app_id)
-				VALUES ${apps.map(appId => `(${connection.escape(bundleId)}, ${connection.escape(appId)})`).join(', ')}
-			`);
-		}
-		await connection.commit();
 	}
 }
 

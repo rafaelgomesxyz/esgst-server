@@ -1,5 +1,5 @@
-const Connection = require('../../class/Connection');
 const CustomError = require('../../class/CustomError');
+const Pool = require('../../class/Connection');
 const Request = require('../../class/Request');
 const Utils = require('../../class/Utils');
 
@@ -90,20 +90,24 @@ class Uh {
 	 * @param {import('express').Response} res
 	 */
 	static async get(req, res) {
-		const connection = new Connection();
-		await connection.connect();
+		/** @type {import('mysql').PoolConnection} */
+		let connection = null;
 		try {
+			connection = await Pool.getConnection();
 			const result = req.route.path.includes('/user/') ? await Uh._find(connection, req) : await Uh._findAll(connection, req);
+			if (connection) {
+				connection.release();
+			}
 			res.status(200)
 				.json({
 					error: null,
 					result: result ? result : null,
 				});
 		} catch (err) {
-			console.log(`GET ${req.route.path} failed with params ${JSON.stringify(req.params)} and query ${JSON.stringify(req.query)}: ${err.message} ${err.stack ? err.stack.replace(/\n/g, ' ') : ''}`);
-			if (connection.inTransaction) {
-				await connection.rollback();
+			if (connection) {
+				connection.release();
 			}
+			console.log(`GET ${req.route.path} failed with params ${JSON.stringify(req.params)} and query ${JSON.stringify(req.query)}: ${err.message} ${err.stack ? err.stack.replace(/\n/g, ' ') : ''}`);
 			if (!err.status) {
 				err.status = 500;
 				err.message = CustomError.COMMON_MESSAGES.internal;
@@ -114,11 +118,10 @@ class Uh {
 					result: null,
 				});
 		}
-		await connection.disconnect();
 	}
 
 	/**
-	 * @param {import('../../class/Connection')} connection
+	 * @param {import('mysql').PoolConnection} connection
 	 * @param {import('express').Request} req
 	 */
 	static async _find(connection, req) {
@@ -132,7 +135,7 @@ class Uh {
 		};
 		Utils.validateParams(pathParams, pathValidator);
 		const steamId = pathParams.steamid;
-		const row = (await connection.query(`
+		const row = (await Pool.query(connection, `
 			SELECT steam_id, usernames, last_check, last_update
 			FROM users__uh
 			WHERE steam_id = ${connection.escape(steamId)}
@@ -161,13 +164,18 @@ class Uh {
 					delete values.usernames;
 					delete values.last_update;
 				}
-				await connection.beginTransaction();
-				await connection.query(`
-					UPDATE users__uh
-					SET ${Object.keys(values).map(key => `${key} = ${connection.escape(values[key])}`).join(', ')}
-					WHERE steam_id = ${connection.escape(steamId)}
-				`);
-				await connection.commit();
+				await Pool.beginTransaction(connection);
+				try {
+					await Pool.query(connection, `
+						UPDATE users__uh
+						SET ${Object.keys(values).map(key => `${key} = ${connection.escape(values[key])}`).join(', ')}
+						WHERE steam_id = ${connection.escape(steamId)}
+					`);
+					await Pool.commit(connection);
+				} catch (err) {
+					await Pool.rollback(connection);
+					throw err;
+				}
 				lastCheck = now;
 			}
 			const result = {
@@ -183,12 +191,17 @@ class Uh {
 		const parts = response.url.split('/user/');
 		if (parts.length === 2) {
 			const username = parts[1];
-			await connection.beginTransaction();
-			await connection.query(`
-				INSERT IGNORE INTO users__uh (steam_id, usernames, last_check)
-				VALUES (${connection.escape(steamId)}, ${connection.escape(username)}, ${connection.escape(now)})
-			`);
-			await connection.commit();
+			await Pool.beginTransaction(connection);
+			try {
+				await Pool.query(connection, `
+					INSERT IGNORE INTO users__uh (steam_id, usernames, last_check)
+					VALUES (${connection.escape(steamId)}, ${connection.escape(username)}, ${connection.escape(now)})
+				`);
+				await Pool.commit(connection);
+			} catch (err) {
+				await Pool.rollback(connection);
+				throw err;
+			}
 			const result = {
 				steam_id: steamId,
 				usernames: [username],
@@ -201,7 +214,7 @@ class Uh {
 	}
 
 	/**
-	 * @param {import('../../class/Connection')} connection
+	 * @param {import('mysql').PoolConnection} connection
 	 * @param {import('express').Request} req
 	 */
 	static async _findAll(connection, req) {
@@ -254,7 +267,7 @@ class Uh {
 		if (params.steam_ids) {
 			conditions.push(`(${steamIds.map(steamId => `steam_id = ${connection.escape(steamId)}`).join(' OR ')})`);
 		}
-		const rows = await connection.query(`
+		const rows = await Pool.query(connection, `
 			SELECT steam_id, usernames, last_check, last_update
 			FROM users__uh
 			${conditions.length > 0 ? `

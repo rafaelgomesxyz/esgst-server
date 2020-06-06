@@ -1,5 +1,5 @@
-const Connection = require('../../class/Connection');
 const CustomError = require('../../class/CustomError');
+const Pool = require('../../class/Connection');
 const Request = require('../../class/Request');
 const Utils = require('../../class/Utils');
 const Game = require('./Game');
@@ -74,7 +74,6 @@ const secrets = require('../../config').secrets;
  * @apiSampleRequest off
  */
 
-
 /**
  * @api {SCHEMA} NcvStatusObject NcvStatusObject
  * @apiGroup Schemas
@@ -141,16 +140,23 @@ class Ncv {
 	 * @param {import('express').Response} res
 	 */
 	static async get(req, res) {
-		const connection = new Connection();
-		await connection.connect();
+		/** @type {import('mysql').PoolConnection} */
+		let connection = null;
 		try {
+			connection = await Pool.getConnection();
 			const result = await Ncv._find(connection, req);
+			if (connection) {
+				connection.release();
+			}
 			res.status(200)
 				.json({
 					error: null,
 					result,
 				});
 		} catch (err) {
+			if (connection) {
+				connection.release();
+			}
 			console.log(`GET ${req.route.path} failed with params ${JSON.stringify(req.params)} and query ${JSON.stringify(req.query)}: ${err.message} ${err.stack ? err.stack.replace(/\n/g, ' ') : ''}`);
 			if (!err.status) {
 				err.status = 500;
@@ -162,7 +168,6 @@ class Ncv {
 					result: null,
 				});
 		}
-		await connection.disconnect();
 	}
 
 	/**
@@ -170,20 +175,24 @@ class Ncv {
 	 * @param {import('express').Response} res
 	 */
 	static async post(req, res) {
-		const connection = new Connection();
-		await connection.connect();
+		/** @type {import('mysql').PoolConnection} */
+		let connection = null;
 		try {
+			connection = await Pool.getConnection();
 			const result = await Ncv._insert(connection, req);
+			if (connection) {
+				connection.release();
+			}
 			res.status(200)
 				.json({
 					error: null,
 					result,
 				});
 		} catch (err) {
-			console.log(`POST ${req.route.path} failed with params ${JSON.stringify(req.params)} and query ${JSON.stringify(req.query)}: ${err.message} ${err.stack ? err.stack.replace(/\n/g, ' ') : ''}`);
-			if (connection.inTransaction) {
-				await connection.rollback();
+			if (connection) {
+				connection.release();
 			}
+			console.log(`POST ${req.route.path} failed with params ${JSON.stringify(req.params)} and query ${JSON.stringify(req.query)}: ${err.message} ${err.stack ? err.stack.replace(/\n/g, ' ') : ''}`);
 			if (!err.status) {
 				err.status = 500;
 				err.message = CustomError.COMMON_MESSAGES.internal;
@@ -194,11 +203,10 @@ class Ncv {
 					result: null,
 				});
 		}
-		await connection.disconnect();
 	}
 
 	/**
-	 * @param {import('../../class/Connection')} connection
+	 * @param {import('mysql').PoolConnection} connection
 	 * @param {import('express').Request} req
 	 */
 	static async _find(connection, req) {
@@ -319,7 +327,7 @@ class Ncv {
 			if (params.date_before_or_equal) {
 				conditions.push(`g_tncv.effective_date <= ${connection.escape(Math.trunc(new Date(`${params.date_before_or_equal}T00:00:00.000Z`).getTime() / 1e3))}`);
 			}
-			const rows = await connection.query(`
+			const rows = await Pool.query(connection, `
 				SELECT ${[
 					`g_tncv.${type}_id`,
 					...(params.show_name ? ['g_tn.name'] : []),
@@ -361,7 +369,7 @@ class Ncv {
 				result.not_found[`${type}s`].push(id);
 			}
 		}
-		const timestampRow = await connection.query('SELECT name, date FROM timestamps WHERE name = "ncv_last_update"')[0];
+		const timestampRow = await Pool.query(connection, 'SELECT name, date FROM timestamps WHERE name = "ncv_last_update"')[0];
 		if (timestampRow) {
 			result.last_update = Utils.formatDate(parseInt(timestampRow.date) * 1e3, true);
 		}
@@ -369,7 +377,7 @@ class Ncv {
 	}
 
 	/**
-	 * @param {import('../../class/Connection')} connection
+	 * @param {import('mysql').PoolConnection} connection
 	 * @param {import('express').Request} req
 	 */
 	static async _insert(connection, req) {
@@ -445,7 +453,7 @@ class Ncv {
 			if (ids.length < 1) {
 				continue;
 			}
-			const rows = await connection.query(`
+			const rows = await Pool.query(connection, `
 				SELECT ${type}_id, effective_date
 				FROM games__${type}_ncv
 				WHERE ${ids.map(id => `${type}_id = ${connection.escape(id)}`).join(' OR ')}
@@ -516,30 +524,35 @@ class Ncv {
 				result[`${type}s`][id] = 'not_found';
 			}
 		}
-		await connection.beginTransaction();
-		for (const type of Game.TYPES) {
-			if (type === 'bundle') {
-				continue;
+		await Pool.beginTransaction(connection);
+		try {
+			for (const type of Game.TYPES) {
+				if (type === 'bundle') {
+					continue;
+				}
+				if (ncv.toAdd[type].length > 0) {
+					await Pool.query(connection, `
+						INSERT IGNORE INTO games__${type}_name (${type}_id, name)
+						VALUES ${ncv.toAdd[type].map(game => `(${connection.escape(game.id)}, ${connection.escape(game.name)})`).join(', ')}
+					`);
+					await Pool.query(connection, `
+						INSERT INTO games__${type}_ncv (${type}_id, effective_date, added_date, found)
+						VALUES ${ncv.toAdd[type].map(game => `(${connection.escape(game.id)}, ${connection.escape(game.date)}, ${connection.escape(addedDate)}, TRUE)`).join(', ')}
+						ON DUPLICATE KEY UPDATE effective_date = VALUES(effective_date), found = VALUES(found)
+					`);
+				}
+				if (ncv.toRemove[type].length > 0) {
+					await Pool.query(connection, `
+						DELETE FROM games__${type}_ncv
+						WHERE ${ncv.toRemove[type].map(id => `${type}_id = ${connection.escape(id)}`).join(' OR ')}
+					`);
+				}
 			}
-			if (ncv.toAdd[type].length > 0) {
-				await connection.query(`
-					INSERT IGNORE INTO games__${type}_name (${type}_id, name)
-					VALUES ${ncv.toAdd[type].map(game => `(${connection.escape(game.id)}, ${connection.escape(game.name)})`).join(', ')}
-				`);
-				await connection.query(`
-					INSERT INTO games__${type}_ncv (${type}_id, effective_date, added_date, found)
-					VALUES ${ncv.toAdd[type].map(game => `(${connection.escape(game.id)}, ${connection.escape(game.date)}, ${connection.escape(addedDate)}, TRUE)`).join(', ')}
-					ON DUPLICATE KEY UPDATE effective_date = VALUES(effective_date), found = VALUES(found)
-				`);
-			}
-			if (ncv.toRemove[type].length > 0) {
-				await connection.query(`
-					DELETE FROM games__${type}_ncv
-					WHERE ${ncv.toRemove[type].map(id => `${type}_id = ${connection.escape(id)}`).join(' OR ')}
-				`);
-			}
+			await Pool.commit(connection);
+		} catch (err) {
+			await Pool.rollback(connection);
+			throw err;
 		}
-		await connection.commit();
 		return result;
 	}
 }
