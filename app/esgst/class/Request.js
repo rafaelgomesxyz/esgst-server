@@ -71,7 +71,7 @@ class Request {
 			}
 			return result;
 		} catch (err) {
-			console.log(`${config.method} request to ${url} failed with ${response.status}`);
+			console.log(`${config.method} request to ${url} failed with ${response && response.status}`);
 		}
 	}
 
