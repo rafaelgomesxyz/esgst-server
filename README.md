@@ -1,8 +1,15 @@
 # server
 
-My server which contains APIs for my applications.
+My Node.js server which contains APIs for my applications.
 
-Available at https://rafaelgssa.com. Automatically deployed with Umbler on every push to master.
+Available at https://rafaelgssa.com.
+
+Currently hosted on [Umbler](https://umbler.com/us). To deploy:
+
+```
+git remote add umbler $UMBLER_REMOTE_URL
+git push umbler master
+```
 
 ---
 
