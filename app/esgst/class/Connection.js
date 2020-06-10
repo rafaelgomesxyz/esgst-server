@@ -7,7 +7,7 @@ class _Pool {
 		this._pool = mysql.createPool({
 			...defaultConfig,
 			...config,
-			connectionLimit: 5,
+			connectionLimit: 4,
 		});
 	}
 
