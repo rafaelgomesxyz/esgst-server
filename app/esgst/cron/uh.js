@@ -24,6 +24,7 @@ async function doUhCronJob() {
 		}
 		console.log(`UH histories update failed: ${err}`);
 	}
+	process.exit();
 }
 
 /**

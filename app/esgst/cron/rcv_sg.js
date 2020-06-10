@@ -26,6 +26,7 @@ async function doRcvSgCronJob() {
 		}
 		console.log(`RCV games update from SG failed: ${err}`);
 	}
+	process.exit();
 }
 
 /**
