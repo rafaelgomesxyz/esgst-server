@@ -1,5 +1,3 @@
-# NOTICE: This repository has been moved to GitLab. https://gitlab.com/rafaelgssa/server
-
 # server
 
 My Node.js server which contains APIs for my applications.
