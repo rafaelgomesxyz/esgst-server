@@ -114,6 +114,14 @@ class SettingsStats {
 			const { uuid, settingsKeys } = req.body;
 			const columnRows = await Pool.query(connection, 'DESCRIBE settings__stats');
 			const columns = columnRows.filter((columnRow) => columnRow.Field !== 'uuid');
+			const missingColumns = settingsKeys.filter((settingsKey) => !columns.includes(settingsKey));
+			if (missingColumns.length > 0) {
+				await Pool.query(connection, `
+					ALTER TABLE settings__stats
+						${missingColumns.map((missingColumn) => `ADD COLUMN ${connection.escape(missingColumn)} TINYINT(1) NOT NULL DEFAULT 0`)}
+				`);
+			}
+			columns.push(...missingColumns);
 			const values = columns.map((column) => settingsKeys.includes(column) ? 1 : 0).join(', ');
 			await Pool.query(connection, `
 				INSERT INTO settings__stats (uuid, ${columns.join(', ')})

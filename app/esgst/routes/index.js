@@ -17,7 +17,7 @@ routes.get('/esgst/games/ncv', Ncv.get);
 routes.post('/esgst/games/ncv', Ncv.post);
 routes.get('/esgst/user/\\+:steamid/uh', Uh.get);
 routes.get('/esgst/users/uh', Uh.get);
-routes.get('/settings/stats', SettingsStats.get);
-routes.post('/settings/stats', SettingsStats.post);
+routes.get('/esgst/settings/stats', SettingsStats.get);
+routes.post('/esgst/settings/stats', SettingsStats.post);
 
 module.exports = routes;
