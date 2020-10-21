@@ -118,15 +118,16 @@ class SettingsStats {
 			if (missingColumns.length > 0) {
 				await Pool.query(connection, `
 					ALTER TABLE settings__stats
-						${missingColumns.map((missingColumn) => `ADD COLUMN ${connection.escape(missingColumn)} TINYINT(1) NOT NULL DEFAULT 0`).join(', ')}
+						${missingColumns.map((missingColumn) => `ADD COLUMN ${connection.escapeId(missingColumn)} TINYINT(1) NOT NULL DEFAULT 0`).join(', ')}
 				`);
 			}
 			columns.push(...missingColumns);
+			const escapedColumns = columns.map((column) => connection.escapeId(column));
 			const values = columns.map((column) => settingsKeys.includes(column) ? 1 : 0).join(', ');
 			await Pool.query(connection, `
-				INSERT INTO settings__stats (uuid, ${columns.join(', ')})
+				INSERT INTO settings__stats (\`uuid\`, ${escapedColumns.join(', ')})
 				VALUES (${connection.escape(uuid)}, ${values})
-				ON DUPLICATE KEY UPDATE ${columns.map((column) => `${column} = VALUES(${column})`).join(', ')}
+				ON DUPLICATE KEY UPDATE ${escapedColumns.map((column) => `${column} = VALUES(${column})`).join(', ')}
 			`);
 			if (connection) {
 				connection.release();
