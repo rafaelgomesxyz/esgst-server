@@ -113,7 +113,9 @@ class SettingsStats {
 			connection = await Pool.getConnection();
 			const { uuid, settingsKeys } = req.body;
 			const columnRows = await Pool.query(connection, 'DESCRIBE settings__stats');
-			const columns = columnRows.filter((columnRow) => columnRow.Field !== 'uuid');
+			const columns = columnRows
+				.filter((columnRow) => columnRow.Field !== 'uuid')
+				.map((columnRow) => columnRow.Field);
 			const missingColumns = settingsKeys.filter((settingsKey) => !columns.includes(settingsKey));
 			if (missingColumns.length > 0) {
 				await Pool.query(connection, `
