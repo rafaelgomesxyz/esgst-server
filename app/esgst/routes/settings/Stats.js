@@ -118,7 +118,7 @@ class SettingsStats {
 			if (missingColumns.length > 0) {
 				await Pool.query(connection, `
 					ALTER TABLE settings__stats
-						${missingColumns.map((missingColumn) => `ADD COLUMN ${connection.escape(missingColumn)} TINYINT(1) NOT NULL DEFAULT 0`)}
+						${missingColumns.map((missingColumn) => `ADD COLUMN ${connection.escape(missingColumn)} TINYINT(1) NOT NULL DEFAULT 0`).join('\n')}
 				`);
 			}
 			columns.push(...missingColumns);
