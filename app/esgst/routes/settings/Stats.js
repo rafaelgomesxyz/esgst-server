@@ -79,7 +79,7 @@ class SettingsStats {
 				'submissions': 0,
 			};
 			const excludedColumns = ['uuid', '_v', '_lastSubmitted'];
-			const dataRows = await Pool.query(connection, 'SELECT * FROM settings__stats WHERE v = 2');
+			const dataRows = await Pool.query(connection, 'SELECT * FROM settings__stats WHERE _v = 2');
 			for (const dataRow of dataRows) {
 				const keys = Object.keys(dataRow).filter((key) => !excludedColumns.includes(key));
 				for (const key of keys) {
