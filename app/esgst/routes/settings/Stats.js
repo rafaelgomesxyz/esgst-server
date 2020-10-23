@@ -2,6 +2,20 @@ const CustomError = require('../../class/CustomError');
 const Pool = require('../../class/Connection');
 
 /**
+ * @api {SCHEMA} SettingStats SettingStats
+ * @apiGroup Schemas
+ * @apiName SettingStats
+ * @apiDescription Setting stats.
+ * @apiVersion 1.0.0
+ *
+ * @apiParam (Schema) {Object} setting
+ * @apiParam (Schema) {String} setting.id The setting's ID.
+ * @apiParam (Schema) {Integer} setting.count The setting's usage count.
+ * 
+ * @apiSampleRequest off
+ */
+
+/**
  * @api {SCHEMA} SettingsStats SettingsStats
  * @apiGroup Schemas
  * @apiName SettingsStats
@@ -9,7 +23,7 @@ const Pool = require('../../class/Connection');
  * @apiVersion 1.0.0
  *
  * @apiParam (Schema) {Object} result
- * @apiParam (Schema) {Object} result.settings An object containing the usage count for each setting.
+ * @apiParam (Schema) {SettingStats[]} result.settings An array of [SettingStats](#api-Schemas-SettingStats), sorted by usage count.
  * @apiParam (Schema) {Integer} result.submissions The number of user submissions that have been counted.
  * 
  * @apiSampleRequest off
@@ -64,18 +78,30 @@ class SettingsStats {
 				'settings': {},
 				'submissions': 0,
 			};
-			const dataRows = await Pool.query(connection, 'SELECT * FROM settings__stats');
+			const excludedColumns = ['uuid', '_v', '_lastSubmitted'];
+			const dataRows = await Pool.query(connection, 'SELECT * FROM settings__stats WHERE v = 2');
 			for (const dataRow of dataRows) {
-				for (const [key, value] of Object.entries(dataRow)) {
-					if (key === 'uuid') {
-						continue;
-					}
+				const keys = Object.keys(dataRow).filter((key) => !excludedColumns.includes(key));
+				for (const key of keys) {
+					const value = dataRow[key];
 					if (!result.settings[key]) {
-						result.settings[key] = 0;
+						result.settings[key] = {
+							id: key,
+							count: 0,
+						};
 					}
-					result.settings[key] += value;
+					result.settings[key].count += value;
 				}
 			}
+			result.settings = Object.values(result.settings).sort((a, b) => {
+				if (a.count > b.count) {
+					return -1;
+				}
+				if (a.count < b.count) {
+					return 1;
+				}
+				return 0;
+			});
 			result.submissions = dataRows.length;
 			if (connection) {
 				connection.release();
@@ -111,10 +137,11 @@ class SettingsStats {
 		let connection = null;
 		try {
 			connection = await Pool.getConnection();
-			const { uuid, settingsKeys } = req.body;
+			const { v, uuid, settingsKeys } = req.body;
+			const excludedColumns = ['uuid', '_v', '_lastSubmitted'];
 			const columnRows = await Pool.query(connection, 'DESCRIBE settings__stats');
 			const columns = columnRows
-				.filter((columnRow) => columnRow.Field !== 'uuid')
+				.filter((columnRow) => !excludedColumns.includes(columnRow.Field))
 				.map((columnRow) => columnRow.Field);
 			const missingColumns = settingsKeys.filter((settingsKey) => !columns.includes(settingsKey));
 			if (missingColumns.length > 0) {
@@ -125,11 +152,12 @@ class SettingsStats {
 			}
 			columns.push(...missingColumns);
 			const escapedColumns = columns.map((column) => connection.escapeId(column));
+			const now = Math.trunc(Date.now() / 1e3);
 			const values = columns.map((column) => settingsKeys.includes(column) ? 1 : 0).join(', ');
 			await Pool.query(connection, `
-				INSERT INTO settings__stats (\`uuid\`, ${escapedColumns.join(', ')})
-				VALUES (${connection.escape(uuid)}, ${values})
-				ON DUPLICATE KEY UPDATE ${escapedColumns.map((column) => `${column} = VALUES(${column})`).join(', ')}
+				INSERT INTO settings__stats (\`uuid\`, \`_v\`, \`_lastSubmitted\`, ${escapedColumns.join(', ')})
+				VALUES (${connection.escape(uuid)}, ${v ? connection.escape(v) : 'NULL'}, ${now}, ${values})
+				ON DUPLICATE KEY UPDATE \`_v\` = VALUES(\`_v\`), \`_lastSubmitted\` = VALUES(\`_lastSubmitted\`), ${escapedColumns.map((column) => `${column} = VALUES(${column})`).join(', ')}
 			`);
 			if (connection) {
 				connection.release();
