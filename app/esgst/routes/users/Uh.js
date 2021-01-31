@@ -85,225 +85,281 @@ const Utils = require('../../class/Utils');
  */
 
 class Uh {
-	/**
-	 * @param {import('express').Request} req
-	 * @param {import('express').Response} res
-	 */
-	static async get(req, res) {
-		/** @type {import('mysql').PoolConnection} */
-		let connection = null;
-		try {
-			connection = await Pool.getConnection();
-			const result = req.route.path.includes('/user/') ? await Uh._find(connection, req) : await Uh._findAll(connection, req);
-			if (connection) {
-				connection.release();
-			}
-			res.status(200)
-				.json({
-					error: null,
-					result: result ? result : null,
-				});
-		} catch (err) {
-			if (connection) {
-				connection.release();
-			}
-			console.log(`GET ${req.route.path} failed with params ${JSON.stringify(req.params)} and query ${JSON.stringify(req.query)}: ${err.message} ${err.stack ? err.stack.replace(/\n/g, ' ') : ''}`);
-			if (!err.status) {
-				err.status = 500;
-				err.message = CustomError.COMMON_MESSAGES.internal;
-			}
-			res.status(err.status)
-				.json({
-					error: err.message,
-					result: null,
-				});
-		}
-	}
+  /**
+   * @param {import('express').Request} req
+   * @param {import('express').Response} res
+   */
+  static async get(req, res) {
+    /** @type {import('mysql').PoolConnection} */
+    let connection = null;
+    try {
+      connection = await Pool.getConnection();
+      const result = req.route.path.includes('/user/')
+        ? await Uh._find(connection, req)
+        : await Uh._findAll(connection, req);
+      if (connection) {
+        connection.release();
+      }
+      res.status(200).json({
+        error: null,
+        result: result ? result : null,
+      });
+    } catch (err) {
+      if (connection) {
+        connection.release();
+      }
+      console.log(
+        `GET ${req.route.path} failed with params ${JSON.stringify(
+          req.params
+        )} and query ${JSON.stringify(req.query)}: ${err.message} ${
+          err.stack ? err.stack.replace(/\n/g, ' ') : ''
+        }`
+      );
+      if (!err.status) {
+        err.status = 500;
+        err.message = CustomError.COMMON_MESSAGES.internal;
+      }
+      res.status(err.status).json({
+        error: err.message,
+        result: null,
+      });
+    }
+  }
 
-	/**
-	 * @param {import('mysql').PoolConnection} connection
-	 * @param {import('express').Request} req
-	 */
-	static async _find(connection, req) {
-		const pathParams = Object.assign({}, req.params);
-		const queryParams = Object.assign({}, req.query);
-		const pathValidator = {
-			steamid: {
-				message: 'Invalid {steamid}. Must be a string of digits e.g. 76561198020696458.',
-				regex: /^\d+$/,
-			},
-		};
-		Utils.validateParams(pathParams, pathValidator);
-		const steamId = pathParams.steamid;
-		const row = (await Pool.query(connection, `
+  /**
+   * @param {import('mysql').PoolConnection} connection
+   * @param {import('express').Request} req
+   */
+  static async _find(connection, req) {
+    const pathParams = Object.assign({}, req.params);
+    const queryParams = Object.assign({}, req.query);
+    const pathValidator = {
+      steamid: {
+        message:
+          'Invalid {steamid}. Must be a string of digits e.g. 76561198020696458.',
+        regex: /^\d+$/,
+      },
+    };
+    Utils.validateParams(pathParams, pathValidator);
+    const steamId = pathParams.steamid;
+    const row = (
+      await Pool.query(
+        connection,
+        `
 			SELECT steam_id, usernames, last_check, last_update
 			FROM users__uh
 			WHERE steam_id = ${connection.escape(steamId)}
-		`))[0];
-		const now = Math.trunc(Date.now() / 1e3);
-		if (row) {
-			const usernames = row.usernames.split(', ');
-			let lastCheck = parseInt(row.last_check);
-			let lastUpdate = row.last_update ? parseInt(row.last_update) : null;
-			const differenceInSeconds = now - lastCheck;
-			if (differenceInSeconds >= 60 * 60 * 24 * 7 || (queryParams.username && usernames[0] !== queryParams.username)) {
-				const url = `https://www.steamgifts.com/go/user/${steamId}`;
-				const response = await Request.head(url);
-				const parts = response.url.split('/user/');
-				const username = parts && parts.length === 2 ? parts[1] : '[DELETED]';
-				const values = {
-					usernames: null,
-					last_check: now,
-					last_update: now,
-				};
-				if (usernames[0] !== username) {
-					usernames.unshift(username);
-					values.usernames = usernames.join(', ');
-					lastUpdate = now;
-				} else {
-					delete values.usernames;
-					delete values.last_update;
-				}
-				await Pool.beginTransaction(connection);
-				try {
-					await Pool.query(connection, `
+		`
+      )
+    )[0];
+    const now = Math.trunc(Date.now() / 1e3);
+    if (row) {
+      const usernames = row.usernames.split(', ');
+      let lastCheck = parseInt(row.last_check);
+      let lastUpdate = row.last_update ? parseInt(row.last_update) : null;
+      const differenceInSeconds = now - lastCheck;
+      if (
+        differenceInSeconds >= 60 * 60 * 24 * 7 ||
+        (queryParams.username && usernames[0] !== queryParams.username)
+      ) {
+        const url = `https://www.steamgifts.com/go/user/${steamId}`;
+        const response = await Request.head(url);
+        const parts = response.url.split('/user/');
+        const username = parts && parts.length === 2 ? parts[1] : '[DELETED]';
+        const values = {
+          usernames: null,
+          last_check: now,
+          last_update: now,
+        };
+        if (usernames[0] !== username) {
+          usernames.unshift(username);
+          values.usernames = usernames.join(', ');
+          lastUpdate = now;
+        } else {
+          delete values.usernames;
+          delete values.last_update;
+        }
+        await Pool.beginTransaction(connection);
+        try {
+          await Pool.query(
+            connection,
+            `
 						UPDATE users__uh
-						SET ${Object.keys(values).map(key => `${key} = ${connection.escape(values[key])}`).join(', ')}
+						SET ${Object.keys(values)
+              .map((key) => `${key} = ${connection.escape(values[key])}`)
+              .join(', ')}
 						WHERE steam_id = ${connection.escape(steamId)}
-					`);
-					await Pool.commit(connection);
-				} catch (err) {
-					await Pool.rollback(connection);
-					throw err;
-				}
-				lastCheck = now;
-			}
-			const result = {
-				steam_id: row.steam_id,
-				usernames,
-				last_check: Utils.formatDate(lastCheck * 1e3, true),
-				last_update: lastUpdate ? Utils.formatDate(lastUpdate * 1e3, true) : null,
-			};
-			return result;
-		}
-		const url = `https://www.steamgifts.com/go/user/${steamId}`;
-		const response = await Request.head(url);
-		const parts = response.url.split('/user/');
-		if (parts.length === 2) {
-			const username = parts[1];
-			await Pool.beginTransaction(connection);
-			try {
-				await Pool.query(connection, `
+					`
+          );
+          await Pool.commit(connection);
+        } catch (err) {
+          await Pool.rollback(connection);
+          throw err;
+        }
+        lastCheck = now;
+      }
+      const result = {
+        steam_id: row.steam_id,
+        usernames,
+        last_check: Utils.formatDate(lastCheck * 1e3, true),
+        last_update: lastUpdate
+          ? Utils.formatDate(lastUpdate * 1e3, true)
+          : null,
+      };
+      return result;
+    }
+    const url = `https://www.steamgifts.com/go/user/${steamId}`;
+    const response = await Request.head(url);
+    const parts = response.url.split('/user/');
+    if (parts.length === 2) {
+      const username = parts[1];
+      await Pool.beginTransaction(connection);
+      try {
+        await Pool.query(
+          connection,
+          `
 					INSERT IGNORE INTO users__uh (steam_id, usernames, last_check)
-					VALUES (${connection.escape(steamId)}, ${connection.escape(username)}, ${connection.escape(now)})
-				`);
-				await Pool.commit(connection);
-			} catch (err) {
-				await Pool.rollback(connection);
-				throw err;
-			}
-			const result = {
-				steam_id: steamId,
-				usernames: [username],
-				last_check: Utils.formatDate(now * 1e3, true),
-				last_update: null,
-			};
-			return result;
-		}
-		return null;
-	}
+					VALUES (${connection.escape(steamId)}, ${connection.escape(
+            username
+          )}, ${connection.escape(now)})
+				`
+        );
+        await Pool.commit(connection);
+      } catch (err) {
+        await Pool.rollback(connection);
+        throw err;
+      }
+      const result = {
+        steam_id: steamId,
+        usernames: [username],
+        last_check: Utils.formatDate(now * 1e3, true),
+        last_update: null,
+      };
+      return result;
+    }
+    return null;
+  }
 
-	/**
-	 * @param {import('mysql').PoolConnection} connection
-	 * @param {import('express').Request} req
-	 */
-	static async _findAll(connection, req) {
-		const booleanMessage = 'Must be true or false.';
-		const booleanRegex = /^(true|false|1|0|)$/i;
-		const trueBooleanRegex = /^(true|1|)$/i
-		const params = Object.assign({}, req.query);
-		const validator = {
-			'format_array': {
-				'message': booleanMessage,
-				'regex': booleanRegex,
-			},
-			'show_steam_id': {
-				'message': booleanMessage,
-				'regex': booleanRegex,
-			},
-			'steam_ids': {
-				'message': 'Must be a comma-separated list of Steam ids e.g. 76561198020696458,76561198174510278.',
-				'regex': /^((\d+,)*\d+$|$)/,
-				'conflicts': ['show_recent'],
-			},
-			'show_recent': {
-				'message': booleanMessage,
-				'regex': booleanRegex,
-				'conflicts': ['steam_ids'],
-			},
-		};
-		Utils.validateParams(params, validator);
-		if (typeof params.format_array !== 'undefined' && params.format_array.match(trueBooleanRegex)) {
-			params.format_array = true;
-			params.show_steam_id = false;
-		} else if (typeof params.show_steam_id !== 'undefined' && params.show_steam_id.match(trueBooleanRegex)) {
-			params.show_steam_id = true;
-			params.format_array = false;
-		} else {
-			params.format_array = false;
-			params.show_steam_id = false;
-		}
-		if (typeof params.show_recent !== 'undefined' && params.show_recent.match(trueBooleanRegex)) {
-			params.show_recent = true;
-		} else {
-			params.show_recent = false;
-		}
-		const result = {
-			'found': params.format_array ? [] : {},
-			'not_found': [],
-		};
-		const steamIds = params.steam_ids ? params.steam_ids.split(',') : [];
-		let conditions = [];
-		if (params.steam_ids) {
-			conditions.push(`(${steamIds.map(steamId => `steam_id = ${connection.escape(steamId)}`).join(' OR ')})`);
-		}
-		const rows = await Pool.query(connection, `
+  /**
+   * @param {import('mysql').PoolConnection} connection
+   * @param {import('express').Request} req
+   */
+  static async _findAll(connection, req) {
+    const booleanMessage = 'Must be true or false.';
+    const booleanRegex = /^(true|false|1|0|)$/i;
+    const trueBooleanRegex = /^(true|1|)$/i;
+    const params = Object.assign({}, req.query);
+    const validator = {
+      format_array: {
+        message: booleanMessage,
+        regex: booleanRegex,
+      },
+      show_steam_id: {
+        message: booleanMessage,
+        regex: booleanRegex,
+      },
+      steam_ids: {
+        message:
+          'Must be a comma-separated list of Steam ids e.g. 76561198020696458,76561198174510278.',
+        regex: /^((\d+,)*\d+$|$)/,
+        conflicts: ['show_recent'],
+      },
+      show_recent: {
+        message: booleanMessage,
+        regex: booleanRegex,
+        conflicts: ['steam_ids'],
+      },
+    };
+    Utils.validateParams(params, validator);
+    if (
+      typeof params.format_array !== 'undefined' &&
+      params.format_array.match(trueBooleanRegex)
+    ) {
+      params.format_array = true;
+      params.show_steam_id = false;
+    } else if (
+      typeof params.show_steam_id !== 'undefined' &&
+      params.show_steam_id.match(trueBooleanRegex)
+    ) {
+      params.show_steam_id = true;
+      params.format_array = false;
+    } else {
+      params.format_array = false;
+      params.show_steam_id = false;
+    }
+    if (
+      typeof params.show_recent !== 'undefined' &&
+      params.show_recent.match(trueBooleanRegex)
+    ) {
+      params.show_recent = true;
+    } else {
+      params.show_recent = false;
+    }
+    const result = {
+      found: params.format_array ? [] : {},
+      not_found: [],
+    };
+    const steamIds = params.steam_ids ? params.steam_ids.split(',') : [];
+    let conditions = [];
+    if (params.steam_ids) {
+      conditions.push(
+        `(${steamIds
+          .map((steamId) => `steam_id = ${connection.escape(steamId)}`)
+          .join(' OR ')})`
+      );
+    }
+    const rows = await Pool.query(
+      connection,
+      `
 			SELECT steam_id, usernames, last_check, last_update
 			FROM users__uh
-			${conditions.length > 0 ? `
+			${
+        conditions.length > 0
+          ? `
 				WHERE ${conditions.join(' AND ')}
-			` : ''}
-			${params.show_recent ? `
+			`
+          : ''
+      }
+			${
+        params.show_recent
+          ? `
 				WHERE last_update IS NOT NULL
 				ORDER BY last_update DESC
 				LIMIT 100
-			` : ''}
-		`);
-		const steamIdsFound = [];
-		for (const row of rows) {
-			const steamId = row.steam_id;
-			const user = {
-				steam_id: steamId,
-				usernames: row.usernames.split(', '),
-				last_check: Utils.formatDate(parseInt(row.last_check) * 1e3, true),
-				last_update: row.last_update ? Utils.formatDate(parseInt(row.last_update) * 1e3, true) : null,
-			};
-			if (params.format_array) {
-				result.found.push(user);
-			} else {
-				if (!params.show_steam_id) {
-					delete user.steam_id;
-				}
-				result.found[steamId] = user;
-			}
-			steamIdsFound.push(steamId);
-		}
-		const steamIdsNotFound = steamIds.filter(steamId => !steamIdsFound.includes(steamId));
-		for (const steamId of steamIdsNotFound) {
-			result.not_found.push(steamId);
-		}
-		return result;
-	}
+			`
+          : ''
+      }
+		`
+    );
+    const steamIdsFound = [];
+    for (const row of rows) {
+      const steamId = row.steam_id;
+      const user = {
+        steam_id: steamId,
+        usernames: row.usernames.split(', '),
+        last_check: Utils.formatDate(parseInt(row.last_check) * 1e3, true),
+        last_update: row.last_update
+          ? Utils.formatDate(parseInt(row.last_update) * 1e3, true)
+          : null,
+      };
+      if (params.format_array) {
+        result.found.push(user);
+      } else {
+        if (!params.show_steam_id) {
+          delete user.steam_id;
+        }
+        result.found[steamId] = user;
+      }
+      steamIdsFound.push(steamId);
+    }
+    const steamIdsNotFound = steamIds.filter(
+      (steamId) => !steamIdsFound.includes(steamId)
+    );
+    for (const steamId of steamIdsNotFound) {
+      result.not_found.push(steamId);
+    }
+    return result;
+  }
 }
 
 module.exports = Uh;

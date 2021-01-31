@@ -102,221 +102,307 @@ const Game = require('./Game');
  */
 
 class Rcv {
-	/**
-	 * @param {import('express').Request} req
-	 * @param {import('express').Response} res
-	 */
-	static async get(req, res) {
-		/** @type {import('mysql').PoolConnection} */
-		let connection = null;
-		try {
-			connection = await Pool.getConnection();
-			const result = await Rcv._find(connection, req);
-			if (connection) {
-				connection.release();
-			}
-			res.status(200)
-				.json({
-					error: null,
-					result,
-				});
-		} catch (err) {
-			if (connection) {
-				connection.release();
-			}
-			console.log(`GET ${req.route.path} failed with params ${JSON.stringify(req.params)} and query ${JSON.stringify(req.query)}: ${err.message} ${err.stack ? err.stack.replace(/\n/g, ' ') : ''}`);
-			if (!err.status) {
-				err.status = 500;
-				err.message = CustomError.COMMON_MESSAGES.internal;
-			}
-			res.status(err.status)
-				.json({
-					error: err.message,
-					result: null,
-				});
-		}
-	}
+  /**
+   * @param {import('express').Request} req
+   * @param {import('express').Response} res
+   */
+  static async get(req, res) {
+    /** @type {import('mysql').PoolConnection} */
+    let connection = null;
+    try {
+      connection = await Pool.getConnection();
+      const result = await Rcv._find(connection, req);
+      if (connection) {
+        connection.release();
+      }
+      res.status(200).json({
+        error: null,
+        result,
+      });
+    } catch (err) {
+      if (connection) {
+        connection.release();
+      }
+      console.log(
+        `GET ${req.route.path} failed with params ${JSON.stringify(
+          req.params
+        )} and query ${JSON.stringify(req.query)}: ${err.message} ${
+          err.stack ? err.stack.replace(/\n/g, ' ') : ''
+        }`
+      );
+      if (!err.status) {
+        err.status = 500;
+        err.message = CustomError.COMMON_MESSAGES.internal;
+      }
+      res.status(err.status).json({
+        error: err.message,
+        result: null,
+      });
+    }
+  }
 
-	/**
-	 * @param {import('mysql').PoolConnection} connection
-	 * @param {import('express').Request} req
-	 */
-	static async _find(connection, req) {
-		const booleanMessage = 'Must be true or false.';
-		const booleanRegex = /^(true|false|1|0|)$/i;
-		const trueBooleanRegex = /^(true|1|)$/i
-		const idsMessage = 'Must be a comma-separated list of ids e.g. 400,500,600.';
-		const idsRegex = /^((\d+,)*\d+$|$)/;
-		const dateMessage = 'Must be a date in the format YYYY-MM-DD.';
-		const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
-		const params = Object.assign({}, req.query);
-		const validator = {
-			'format_array': {
-				'message': booleanMessage,
-				'regex': booleanRegex,
-			},
-			'show_id': {
-				'message': booleanMessage,
-				'regex': booleanRegex,
-			},
-			'show_name': {
-				'message': booleanMessage,
-				'regex': booleanRegex,
-			},
-			'app_ids': {
-				'message': idsMessage,
-				'regex': idsRegex,
-				'conflicts': ['show_recent'],
-			},
-			'sub_ids': {
-				'message': idsMessage,
-				'regex': idsRegex,
-				'conflicts': ['show_recent'],
-			},
-			'date_after': {
-				'message': dateMessage,
-				'regex': dateRegex,
-				'conflicts': ['date_equal', 'date_after_or_equal', 'show_recent'],
-			},
-			'date_after_or_equal': {
-				'message': dateMessage,
-				'regex': dateRegex,
-				'conflicts': ['date_equal', 'date_after', 'show_recent'],
-			},
-			'date_before': {
-				'message': dateMessage,
-				'regex': dateRegex,
-				'conflicts': ['date_equal', 'date_before_or_equal', 'show_recent'],
-			},
-			'date_before_or_equal': {
-				'message': dateMessage,
-				'regex': dateRegex,
-				'conflicts': ['date_equal', 'date_before', 'show_recent'],
-			},
-			'date_equal': {
-				'message': dateMessage,
-				'regex': dateRegex,
-				'conflicts': ['date_after', 'date_before', 'show_recent'],
-			},
-			'show_recent': {
-				'message': booleanMessage,
-				'regex': booleanRegex,
-				'conflicts': ['app_ids', 'sub_ids', 'date_after', 'date_after_or_equal', 'date_before', 'date_before_or_equal', 'date-equal'],
-			},
-		};
-		Utils.validateParams(params, validator);
-		if (typeof params.format_array !== 'undefined' && params.format_array.match(trueBooleanRegex)) {
-			params.format_array = true;
-			params.show_id = false;
-		} else if (typeof params.show_id !== 'undefined' && params.show_id.match(trueBooleanRegex)) {
-			params.show_id = true;
-			params.format_array = false;
-		} else {
-			params.format_array = false;
-			params.show_id = false;
-		}
-		if (typeof params.show_recent !== 'undefined' && params.show_recent.match(trueBooleanRegex)) {
-			params.show_recent = true;
-		} else {
-			params.show_recent = false;
-		}
-		params.show_name = typeof params.show_name !== 'undefined' && !!params.show_name.match(trueBooleanRegex);
-		const result = {
-			'found': {
-				'apps': params.format_array ? [] : {},
-				'subs': params.format_array ? [] : {},
-			},
-			'not_found': {
-				'apps': [],
-				'subs': [],
-			},
-			'last_update_from_sg': null,
-			'last_update_from_sgtools': null,
-		};
-		for (const type of Game.TYPES) {
-			if (type === 'bundle') {
-				continue;
-			}
-			if (Utils.isSet(params[`${type}_ids`]) && !params[`${type}_ids`]) {
-				continue;
-			}
-			const ids = params[`${type}_ids`] ? params[`${type}_ids`].split(',').map(id => parseInt(id)) : [];
-			let conditions = [];
-			if (params[`${type}_ids`]) {
-				conditions.push(`(${ids.map(id => `g_tr.${type}_id = ${connection.escape(id)}`).join(' OR ')})`);
-			}
-			if (params.date_equal) {
-				conditions.push(`g_tr.effective_date = ${connection.escape(Math.trunc(new Date(`${params.date_equal}T00:00:00.000Z`).getTime() / 1e3))}`);
-			}
-			if (params.date_after) {
-				conditions.push(`g_tr.effective_date > ${connection.escape(Math.trunc(new Date(`${params.date_after}T00:00:00.000Z`).getTime() / 1e3))}`);
-			}
-			if (params.date_after_or_equal) {
-				conditions.push(`g_tr.effective_date >= ${connection.escape(Math.trunc(new Date(`${params.date_after_or_equal}T00:00:00.000Z`).getTime() / 1e3))}`);
-			}
-			if (params.date_before) {
-				conditions.push(`g_tr.effective_date < ${connection.escape(Math.trunc(new Date(`${params.date_before}T00:00:00.000Z`).getTime() / 1e3))}`);
-			}
-			if (params.date_before_or_equal) {
-				conditions.push(`g_tr.effective_date <= ${connection.escape(Math.trunc(new Date(`${params.date_before_or_equal}T00:00:00.000Z`).getTime() / 1e3))}`);
-			}
-			const rows = await Pool.query(connection, `
+  /**
+   * @param {import('mysql').PoolConnection} connection
+   * @param {import('express').Request} req
+   */
+  static async _find(connection, req) {
+    const booleanMessage = 'Must be true or false.';
+    const booleanRegex = /^(true|false|1|0|)$/i;
+    const trueBooleanRegex = /^(true|1|)$/i;
+    const idsMessage =
+      'Must be a comma-separated list of ids e.g. 400,500,600.';
+    const idsRegex = /^((\d+,)*\d+$|$)/;
+    const dateMessage = 'Must be a date in the format YYYY-MM-DD.';
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    const params = Object.assign({}, req.query);
+    const validator = {
+      format_array: {
+        message: booleanMessage,
+        regex: booleanRegex,
+      },
+      show_id: {
+        message: booleanMessage,
+        regex: booleanRegex,
+      },
+      show_name: {
+        message: booleanMessage,
+        regex: booleanRegex,
+      },
+      app_ids: {
+        message: idsMessage,
+        regex: idsRegex,
+        conflicts: ['show_recent'],
+      },
+      sub_ids: {
+        message: idsMessage,
+        regex: idsRegex,
+        conflicts: ['show_recent'],
+      },
+      date_after: {
+        message: dateMessage,
+        regex: dateRegex,
+        conflicts: ['date_equal', 'date_after_or_equal', 'show_recent'],
+      },
+      date_after_or_equal: {
+        message: dateMessage,
+        regex: dateRegex,
+        conflicts: ['date_equal', 'date_after', 'show_recent'],
+      },
+      date_before: {
+        message: dateMessage,
+        regex: dateRegex,
+        conflicts: ['date_equal', 'date_before_or_equal', 'show_recent'],
+      },
+      date_before_or_equal: {
+        message: dateMessage,
+        regex: dateRegex,
+        conflicts: ['date_equal', 'date_before', 'show_recent'],
+      },
+      date_equal: {
+        message: dateMessage,
+        regex: dateRegex,
+        conflicts: ['date_after', 'date_before', 'show_recent'],
+      },
+      show_recent: {
+        message: booleanMessage,
+        regex: booleanRegex,
+        conflicts: [
+          'app_ids',
+          'sub_ids',
+          'date_after',
+          'date_after_or_equal',
+          'date_before',
+          'date_before_or_equal',
+          'date-equal',
+        ],
+      },
+    };
+    Utils.validateParams(params, validator);
+    if (
+      typeof params.format_array !== 'undefined' &&
+      params.format_array.match(trueBooleanRegex)
+    ) {
+      params.format_array = true;
+      params.show_id = false;
+    } else if (
+      typeof params.show_id !== 'undefined' &&
+      params.show_id.match(trueBooleanRegex)
+    ) {
+      params.show_id = true;
+      params.format_array = false;
+    } else {
+      params.format_array = false;
+      params.show_id = false;
+    }
+    if (
+      typeof params.show_recent !== 'undefined' &&
+      params.show_recent.match(trueBooleanRegex)
+    ) {
+      params.show_recent = true;
+    } else {
+      params.show_recent = false;
+    }
+    params.show_name =
+      typeof params.show_name !== 'undefined' &&
+      !!params.show_name.match(trueBooleanRegex);
+    const result = {
+      found: {
+        apps: params.format_array ? [] : {},
+        subs: params.format_array ? [] : {},
+      },
+      not_found: {
+        apps: [],
+        subs: [],
+      },
+      last_update_from_sg: null,
+      last_update_from_sgtools: null,
+    };
+    for (const type of Game.TYPES) {
+      if (type === 'bundle') {
+        continue;
+      }
+      if (Utils.isSet(params[`${type}_ids`]) && !params[`${type}_ids`]) {
+        continue;
+      }
+      const ids = params[`${type}_ids`]
+        ? params[`${type}_ids`].split(',').map((id) => parseInt(id))
+        : [];
+      let conditions = [];
+      if (params[`${type}_ids`]) {
+        conditions.push(
+          `(${ids
+            .map((id) => `g_tr.${type}_id = ${connection.escape(id)}`)
+            .join(' OR ')})`
+        );
+      }
+      if (params.date_equal) {
+        conditions.push(
+          `g_tr.effective_date = ${connection.escape(
+            Math.trunc(
+              new Date(`${params.date_equal}T00:00:00.000Z`).getTime() / 1e3
+            )
+          )}`
+        );
+      }
+      if (params.date_after) {
+        conditions.push(
+          `g_tr.effective_date > ${connection.escape(
+            Math.trunc(
+              new Date(`${params.date_after}T00:00:00.000Z`).getTime() / 1e3
+            )
+          )}`
+        );
+      }
+      if (params.date_after_or_equal) {
+        conditions.push(
+          `g_tr.effective_date >= ${connection.escape(
+            Math.trunc(
+              new Date(
+                `${params.date_after_or_equal}T00:00:00.000Z`
+              ).getTime() / 1e3
+            )
+          )}`
+        );
+      }
+      if (params.date_before) {
+        conditions.push(
+          `g_tr.effective_date < ${connection.escape(
+            Math.trunc(
+              new Date(`${params.date_before}T00:00:00.000Z`).getTime() / 1e3
+            )
+          )}`
+        );
+      }
+      if (params.date_before_or_equal) {
+        conditions.push(
+          `g_tr.effective_date <= ${connection.escape(
+            Math.trunc(
+              new Date(
+                `${params.date_before_or_equal}T00:00:00.000Z`
+              ).getTime() / 1e3
+            )
+          )}`
+        );
+      }
+      const rows = await Pool.query(
+        connection,
+        `
 				SELECT ${[
-					`g_tr.${type}_id`,
-					...(params.show_name ? ['g_tn.name'] : []),
-					'g_tr.effective_date',
-					'g_tr.added_date',
-				].join(', ')}
+          `g_tr.${type}_id`,
+          ...(params.show_name ? ['g_tn.name'] : []),
+          'g_tr.effective_date',
+          'g_tr.added_date',
+        ].join(', ')}
 				FROM games__${type}_rcv AS g_tr
 				INNER JOIN games__${type}_name AS g_tn
 				ON g_tr.${type}_id = g_tn.${type}_id
-				${conditions.length > 0 ? `
+				${
+          conditions.length > 0
+            ? `
 					WHERE ${conditions.join(' AND ')}
-				` : ''}
-				${params.show_recent ? `
+				`
+            : ''
+        }
+				${
+          params.show_recent
+            ? `
 					ORDER BY g_tr.added_date DESC
 					LIMIT ${type === 'app' ? '100' : '50'}
-				` : ''}
-			`);
-			const idsFound = [];
-			for (const row of rows) {
-				const id = parseInt(row[`${type}_id`]);
-				const game = {};
-				if (params.show_id || params.format_array) {
-					game[`${type}_id`] = id;
-				}
-				if (row.name) {
-					game.name = row.name;
-				}
-				game.effective_date = Utils.formatDate(parseInt(row.effective_date) * 1e3);
-				game.added_date = Utils.formatDate(parseInt(row.added_date) * 1e3);
-				if (params.format_array) {
-					result.found[`${type}s`].push(game);
-				} else {
-					result.found[`${type}s`][id] = game;
-				}
-				idsFound.push(id);
-			}
-			const idsNotFound = ids.filter(id => !idsFound.includes(id));
-			for (const id of idsNotFound) {
-				result.not_found[`${type}s`].push(id);
-			}
-		}
-		const timestampRows = await Pool.query(connection, 'SELECT name, date FROM timestamps WHERE name = "rcv_last_update_from_sg" OR name = "rcv_last_update_from_sgtools"');
-		for (const timestampRow of timestampRows) {
-			switch (timestampRow.name) {
-				case 'rcv_last_update_from_sg': {
-					result.last_update_from_sg = Utils.formatDate(parseInt(timestampRow.date) * 1e3, true);
-					break;
-				}
-				case 'rcv_last_update_from_sgtools': {
-					result.last_update_from_sgtools = Utils.formatDate(parseInt(timestampRow.date) * 1e3, true);
-					break;
-				}
-			}
-		}
-		return result;
-	}
+				`
+            : ''
+        }
+			`
+      );
+      const idsFound = [];
+      for (const row of rows) {
+        const id = parseInt(row[`${type}_id`]);
+        const game = {};
+        if (params.show_id || params.format_array) {
+          game[`${type}_id`] = id;
+        }
+        if (row.name) {
+          game.name = row.name;
+        }
+        game.effective_date = Utils.formatDate(
+          parseInt(row.effective_date) * 1e3
+        );
+        game.added_date = Utils.formatDate(parseInt(row.added_date) * 1e3);
+        if (params.format_array) {
+          result.found[`${type}s`].push(game);
+        } else {
+          result.found[`${type}s`][id] = game;
+        }
+        idsFound.push(id);
+      }
+      const idsNotFound = ids.filter((id) => !idsFound.includes(id));
+      for (const id of idsNotFound) {
+        result.not_found[`${type}s`].push(id);
+      }
+    }
+    const timestampRows = await Pool.query(
+      connection,
+      'SELECT name, date FROM timestamps WHERE name = "rcv_last_update_from_sg" OR name = "rcv_last_update_from_sgtools"'
+    );
+    for (const timestampRow of timestampRows) {
+      switch (timestampRow.name) {
+        case 'rcv_last_update_from_sg': {
+          result.last_update_from_sg = Utils.formatDate(
+            parseInt(timestampRow.date) * 1e3,
+            true
+          );
+          break;
+        }
+        case 'rcv_last_update_from_sgtools': {
+          result.last_update_from_sgtools = Utils.formatDate(
+            parseInt(timestampRow.date) * 1e3,
+            true
+          );
+          break;
+        }
+      }
+    }
+    return result;
+  }
 }
 
 module.exports = Rcv;

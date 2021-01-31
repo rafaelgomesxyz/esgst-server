@@ -1,6 +1,5 @@
 const CustomError = require('../../class/CustomError');
 const Pool = require('../../class/Connection');
-const Request = require('../../class/Request');
 const Utils = require('../../class/Utils');
 
 /**

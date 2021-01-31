@@ -41,106 +41,121 @@ const Game = require('./Game');
  */
 
 class SgIds {
-	/**
-	 * @param {import('express').Request} req
-	 * @param {import('express').Response} res
-	 */
-	static async get(req, res) {
-		/** @type {import('mysql').PoolConnection} */
-		let connection = null;
-		try {
-			connection = await Pool.getConnection();
-			const result = await SgIds._find(connection, req);
-			if (connection) {
-				connection.release();
-			}
-			res.status(200)
-				.json({
-					error: null,
-					result,
-				});
-		} catch (err) {
-			if (connection) {
-				connection.release();
-			}
-			console.log(`GET ${req.route.path} failed with params ${JSON.stringify(req.params)} and query ${JSON.stringify(req.query)}: ${err.message} ${err.stack ? err.stack.replace(/\n/g, ' ') : ''}`);
-			if (!err.status) {
-				err.status = 500;
-				err.message = CustomError.COMMON_MESSAGES.internal;
-			}
-			res.status(err.status)
-				.json({
-					error: err.message,
-					result: null,
-				});
-		}
-	}
+  /**
+   * @param {import('express').Request} req
+   * @param {import('express').Response} res
+   */
+  static async get(req, res) {
+    /** @type {import('mysql').PoolConnection} */
+    let connection = null;
+    try {
+      connection = await Pool.getConnection();
+      const result = await SgIds._find(connection, req);
+      if (connection) {
+        connection.release();
+      }
+      res.status(200).json({
+        error: null,
+        result,
+      });
+    } catch (err) {
+      if (connection) {
+        connection.release();
+      }
+      console.log(
+        `GET ${req.route.path} failed with params ${JSON.stringify(
+          req.params
+        )} and query ${JSON.stringify(req.query)}: ${err.message} ${
+          err.stack ? err.stack.replace(/\n/g, ' ') : ''
+        }`
+      );
+      if (!err.status) {
+        err.status = 500;
+        err.message = CustomError.COMMON_MESSAGES.internal;
+      }
+      res.status(err.status).json({
+        error: err.message,
+        result: null,
+      });
+    }
+  }
 
-	/**
-	 * @param {import('mysql').PoolConnection} connection
-	 * @param {import('express').Request} req
-	 */
-	static async _find(connection, req) {
-		const idsMessage = 'Must be a comma-separated list of ids e.g. 400,500,600.';
-		const idsRegex = /^((\d+,)*\d+$|$)/;
-		const params = Object.assign({}, req.query);
-		const validator = {
-			'app_ids': {
-				'message': idsMessage,
-				'regex': idsRegex,
-			},
-			'sub_ids': {
-				'message': idsMessage,
-				'regex': idsRegex,
-			},
-		};
-		Utils.validateParams(params, validator);
-		const result = {
-			'found': {
-				'apps': {},
-				'subs': {},
-			},
-			'not_found': {
-				'apps': [],
-				'subs': [],
-			},
-			'last_update': null,
-		};
-		for (const type of Game.TYPES) {
-			if (type === 'bundle') {
-				continue;
-			}
-			if (Utils.isSet(params[`${type}_ids`]) && !params[`${type}_ids`]) {
-				continue;
-			}
-			const ids = params[`${type}_ids`] ? params[`${type}_ids`].split(',').map(id => parseInt(id)) : [];
-			let conditions = [];
-			if (params[`${type}_ids`]) {
-				conditions.push(`(${ids.map(id => `g_ts.${type}_id = ${connection.escape(id)}`).join(' OR ')})`);
-			}
-			const rows = await Pool.query(connection, `
-				SELECT ${[
-					`g_ts.${type}_id`,
-					'g_ts.sg_id',
-				].join(', ')}
+  /**
+   * @param {import('mysql').PoolConnection} connection
+   * @param {import('express').Request} req
+   */
+  static async _find(connection, req) {
+    const idsMessage =
+      'Must be a comma-separated list of ids e.g. 400,500,600.';
+    const idsRegex = /^((\d+,)*\d+$|$)/;
+    const params = Object.assign({}, req.query);
+    const validator = {
+      app_ids: {
+        message: idsMessage,
+        regex: idsRegex,
+      },
+      sub_ids: {
+        message: idsMessage,
+        regex: idsRegex,
+      },
+    };
+    Utils.validateParams(params, validator);
+    const result = {
+      found: {
+        apps: {},
+        subs: {},
+      },
+      not_found: {
+        apps: [],
+        subs: [],
+      },
+      last_update: null,
+    };
+    for (const type of Game.TYPES) {
+      if (type === 'bundle') {
+        continue;
+      }
+      if (Utils.isSet(params[`${type}_ids`]) && !params[`${type}_ids`]) {
+        continue;
+      }
+      const ids = params[`${type}_ids`]
+        ? params[`${type}_ids`].split(',').map((id) => parseInt(id))
+        : [];
+      let conditions = [];
+      if (params[`${type}_ids`]) {
+        conditions.push(
+          `(${ids
+            .map((id) => `g_ts.${type}_id = ${connection.escape(id)}`)
+            .join(' OR ')})`
+        );
+      }
+      const rows = await Pool.query(
+        connection,
+        `
+				SELECT ${[`g_ts.${type}_id`, 'g_ts.sg_id'].join(', ')}
 				FROM games__${type}_sg AS g_ts
-				${conditions.length > 0 ? `
+				${
+          conditions.length > 0
+            ? `
 					WHERE ${conditions.join(' AND ')}
-				` : ''}
-			`);
-			const idsFound = [];
-			for (const row of rows) {
-				const id = parseInt(row[`${type}_id`]);
-				result.found[`${type}s`][id] = row.sg_id;
-				idsFound.push(id);
-			}
-			const idsNotFound = ids.filter(id => !idsFound.includes(id));
-			for (const id of idsNotFound) {
-				result.not_found[`${type}s`].push(id);
-			}
-		}
-		return result;
-	}
+				`
+            : ''
+        }
+			`
+      );
+      const idsFound = [];
+      for (const row of rows) {
+        const id = parseInt(row[`${type}_id`]);
+        result.found[`${type}s`][id] = row.sg_id;
+        idsFound.push(id);
+      }
+      const idsNotFound = ids.filter((id) => !idsFound.includes(id));
+      for (const id of idsNotFound) {
+        result.not_found[`${type}s`].push(id);
+      }
+    }
+    return result;
+  }
 }
 
 module.exports = SgIds;

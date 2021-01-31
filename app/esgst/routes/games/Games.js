@@ -86,182 +86,196 @@ const Sub = require('./Sub');
  */
 
 class Games {
-	/**
-	 * @param {import('express').Request} req
-	 * @param {import('express').Response} res
-	 */
-	static async get(req, res) {
-		/** @type {import('mysql').PoolConnection} */
-		let connection = null;
-		try {
-			connection = await Pool.getConnection();
-			const result = await Games._find(connection, req);
-			if (connection) {
-				connection.release();
-			}
-			res.status(200)
-				.json({
-					error: null,
-					result,
-				});
-		} catch (err) {
-			if (connection) {
-				connection.release();
-			}
-			console.log(`GET ${req.route.path} failed with params ${JSON.stringify(req.params)} and query ${JSON.stringify(req.query)}: ${err.message} ${err.stack ? err.stack.replace(/\n/g, ' ') : ''}`);
-			if (!err.status) {
-				err.status = 500;
-				err.message = CustomError.COMMON_MESSAGES.internal;
-			}
-			res.status(err.status)
-				.json({
-					error: err.message,
-					result: null,
-				});
-		}
-	}
+  /**
+   * @param {import('express').Request} req
+   * @param {import('express').Response} res
+   */
+  static async get(req, res) {
+    /** @type {import('mysql').PoolConnection} */
+    let connection = null;
+    try {
+      connection = await Pool.getConnection();
+      const result = await Games._find(connection, req);
+      if (connection) {
+        connection.release();
+      }
+      res.status(200).json({
+        error: null,
+        result,
+      });
+    } catch (err) {
+      if (connection) {
+        connection.release();
+      }
+      console.log(
+        `GET ${req.route.path} failed with params ${JSON.stringify(
+          req.params
+        )} and query ${JSON.stringify(req.query)}: ${err.message} ${
+          err.stack ? err.stack.replace(/\n/g, ' ') : ''
+        }`
+      );
+      if (!err.status) {
+        err.status = 500;
+        err.message = CustomError.COMMON_MESSAGES.internal;
+      }
+      res.status(err.status).json({
+        error: err.message,
+        result: null,
+      });
+    }
+  }
 
-	/**
-	 * @param {import('mysql').PoolConnection} connection
-	 * @param {import('express').Request} req
-	 */
-	static async _find(connection, req) {
-		const booleanMessage = 'Must be true or false.';
-		const booleanRegex = /^(true|false|1|0|)$/i;
-		const trueBooleanRegex = /^(true|1|)$/i
-		const idsMessage = 'Must be a comma-separated list of ids e.g. 400,500,600.';
-		const idsRegex = /^((\d+,)*\d+$|$)/;
-		const filtersMessage = '';
-		const filtersRegex = /.*/;
-		const params = Object.assign({}, req.query);
-		const validator = {
-			'join_all': {
-				'message': booleanMessage,
-				'regex': booleanRegex,
-			},
-			'format_array': {
-				'message': booleanMessage,
-				'regex': booleanRegex,
-			},
-			'show_id': {
-				'message': booleanMessage,
-				'regex': booleanRegex,
-			},
-			'app_ids': {
-				'message': idsMessage,
-				'regex': idsRegex,
-			},
-			'sub_ids': {
-				'message': idsMessage,
-				'regex': idsRegex,
-			},
-			'bundle_ids': {
-				'message': idsMessage,
-				'regex': idsRegex,
-			},
-			'app_filters': {
-				'message': filtersMessage,
-				'regex': filtersRegex,
-			},
-			'sub_filters': {
-				'message': filtersMessage,
-				'regex': filtersRegex,
-			},
-			'bundle_filters': {
-				'message': filtersMessage,
-				'regex': filtersRegex,
-			},
-		};
-		Utils.validateParams(params, validator);
-		if (typeof params.join_all !== 'undefined' && params.join_all.match(trueBooleanRegex)) {
-			params.join_all = true;
-			params.format_array = false;
-			params.show_id = false;
-		} else if (typeof params.format_array !== 'undefined' && params.format_array.match(trueBooleanRegex)) {
-			params.format_array = true;
-			params.join_all = false;
-			params.show_id = false;
-		} else if (typeof params.show_id !== 'undefined' && params.show_id.match(trueBooleanRegex)) {
-			params.show_id = true;
-			params.join_all = false;
-			params.format_array = false;
-		} else {
-			params.join_all = false;
-			params.format_array = false;
-			params.show_id = false;
-		}
-		let result;
-		if (params.join_all) {
-			result = {
-				'found': [],
-				'not_found': [],
-			};
-		} else {
-			result = {
-				'found': {
-					'apps': params.format_array ? [] : {},
-					'subs': params.format_array ? [] : {},
-					'bundles': params.format_array ? [] : {},
-				},
-				'not_found': {
-					'apps': [],
-					'subs': [],
-					'bundles': [],
-				}
-			};
-		}
-		for (const type of Game.TYPES) {
-			if (!params[`${type}_ids`]) {
-				continue;
-			}
-			const ids = params[`${type}_ids`].split(',').map(id => parseInt(id));
-			let items;
-			switch (type) {
-				case 'app': {
-					items = await App.get(connection, req, ids);
-					break;
-				}
-				case 'bundle': {
-					items = await Bundle.get(connection, req, ids);
-					break;
-				}
-				case 'sub': {
-					items = await Sub.get(connection, req, ids);
-					break;
-				}
-			}
-			const idsFound = [];
-			for (const item of items) {
-				const id = item[`${type}_id`];
-				if (params.join_all) {
-					result.found.push({
-						type,
-						...item,
-					});
-				} else if (params.format_array) {
-					result.found[`${type}s`].push(item);
-				} else {
-					if (!params.show_id) {
-						delete item[`${type}_id`];
-					}
-					result.found[`${type}s`][id] = item;
-				}
-				idsFound.push(parseInt(id));
-			}
-			const idsNotFound = ids.filter(id => !idsFound.includes(id));
-			for (const id of idsNotFound) {
-				if (params.join_all) {
-					result.not_found.push({
-						type,
-						[`${type}_id`]: id,
-					});
-				} else {
-					result.not_found[`${type}s`].push(id);
-				}
-			}
-		}
-		return result;
-	}
+  /**
+   * @param {import('mysql').PoolConnection} connection
+   * @param {import('express').Request} req
+   */
+  static async _find(connection, req) {
+    const booleanMessage = 'Must be true or false.';
+    const booleanRegex = /^(true|false|1|0|)$/i;
+    const trueBooleanRegex = /^(true|1|)$/i;
+    const idsMessage =
+      'Must be a comma-separated list of ids e.g. 400,500,600.';
+    const idsRegex = /^((\d+,)*\d+$|$)/;
+    const filtersMessage = '';
+    const filtersRegex = /.*/;
+    const params = Object.assign({}, req.query);
+    const validator = {
+      join_all: {
+        message: booleanMessage,
+        regex: booleanRegex,
+      },
+      format_array: {
+        message: booleanMessage,
+        regex: booleanRegex,
+      },
+      show_id: {
+        message: booleanMessage,
+        regex: booleanRegex,
+      },
+      app_ids: {
+        message: idsMessage,
+        regex: idsRegex,
+      },
+      sub_ids: {
+        message: idsMessage,
+        regex: idsRegex,
+      },
+      bundle_ids: {
+        message: idsMessage,
+        regex: idsRegex,
+      },
+      app_filters: {
+        message: filtersMessage,
+        regex: filtersRegex,
+      },
+      sub_filters: {
+        message: filtersMessage,
+        regex: filtersRegex,
+      },
+      bundle_filters: {
+        message: filtersMessage,
+        regex: filtersRegex,
+      },
+    };
+    Utils.validateParams(params, validator);
+    if (
+      typeof params.join_all !== 'undefined' &&
+      params.join_all.match(trueBooleanRegex)
+    ) {
+      params.join_all = true;
+      params.format_array = false;
+      params.show_id = false;
+    } else if (
+      typeof params.format_array !== 'undefined' &&
+      params.format_array.match(trueBooleanRegex)
+    ) {
+      params.format_array = true;
+      params.join_all = false;
+      params.show_id = false;
+    } else if (
+      typeof params.show_id !== 'undefined' &&
+      params.show_id.match(trueBooleanRegex)
+    ) {
+      params.show_id = true;
+      params.join_all = false;
+      params.format_array = false;
+    } else {
+      params.join_all = false;
+      params.format_array = false;
+      params.show_id = false;
+    }
+    let result;
+    if (params.join_all) {
+      result = {
+        found: [],
+        not_found: [],
+      };
+    } else {
+      result = {
+        found: {
+          apps: params.format_array ? [] : {},
+          subs: params.format_array ? [] : {},
+          bundles: params.format_array ? [] : {},
+        },
+        not_found: {
+          apps: [],
+          subs: [],
+          bundles: [],
+        },
+      };
+    }
+    for (const type of Game.TYPES) {
+      if (!params[`${type}_ids`]) {
+        continue;
+      }
+      const ids = params[`${type}_ids`].split(',').map((id) => parseInt(id));
+      let items;
+      switch (type) {
+        case 'app': {
+          items = await App.get(connection, req, ids);
+          break;
+        }
+        case 'bundle': {
+          items = await Bundle.get(connection, req, ids);
+          break;
+        }
+        case 'sub': {
+          items = await Sub.get(connection, req, ids);
+          break;
+        }
+      }
+      const idsFound = [];
+      for (const item of items) {
+        const id = item[`${type}_id`];
+        if (params.join_all) {
+          result.found.push({
+            type,
+            ...item,
+          });
+        } else if (params.format_array) {
+          result.found[`${type}s`].push(item);
+        } else {
+          if (!params.show_id) {
+            delete item[`${type}_id`];
+          }
+          result.found[`${type}s`][id] = item;
+        }
+        idsFound.push(parseInt(id));
+      }
+      const idsNotFound = ids.filter((id) => !idsFound.includes(id));
+      for (const id of idsNotFound) {
+        if (params.join_all) {
+          result.not_found.push({
+            type,
+            [`${type}_id`]: id,
+          });
+        } else {
+          result.not_found[`${type}s`].push(id);
+        }
+      }
+    }
+    return result;
+  }
 }
 
 module.exports = Games;
