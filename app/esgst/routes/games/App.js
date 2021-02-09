@@ -46,76 +46,71 @@ const Utils = require('../../class/Utils');
  */
 
 class App {
-  /**
-   * @param {import('mysql').PoolConnection} connection
-   * @param {import('express').Request} req
-   * @param {Array<number>} ids
-   */
-  static async get(connection, req, ids) {
-    const columns = {
-      name: 'g_an.name',
-      released: 'g_a.released',
-      removed: 'g_a.removed',
-      steam_cloud: 'g_a.steam_cloud',
-      trading_cards: 'g_a.trading_cards',
-      learning: 'g_a.learning',
-      multiplayer: 'g_a.multiplayer',
-      singleplayer: 'g_a.singleplayer',
-      linux: 'g_a.linux',
-      mac: 'g_a.mac',
-      windows: 'g_a.windows',
-      achievements: 'g_a.achievements',
-      price: 'g_a.price',
-      metacritic: 'g_a.metacritic_score, g_a.metacritic_id',
-      rating: 'g_a.rating_percentage, g_a.rating_count',
-      release_date: 'g_a.release_date',
-      genres: 'g_ag_j.genres',
-      tags: 'g_at_j.tags',
-      base: 'g_d.app_id AS base',
-      dlcs: 'g_d_j.dlcs',
-      subs: 'g_sa_j.subs',
-      bundles: 'g_ba_j.bundles',
-    };
-    const columnKeys = Object.keys(columns);
-    const params = Object.assign(
-      {},
-      { filters: req.query.filters || req.query.app_filters || '' }
-    );
-    const validator = {
-      filters: {
-        message: `Must be a comma-separated list containing the following values: ${columnKeys.join(
-          ', '
-        )}`,
-        regex: new RegExp(`^(((${columnKeys.join('|')}),?)+)?$`),
-      },
-    };
-    Utils.validateParams(params, validator);
-    if (params.filters) {
-      const filterKeys = params.filters.split(',');
-      for (const columnKey of columnKeys) {
-        if (!filterKeys.includes(columnKey)) {
-          delete columns[columnKey];
-        }
-      }
-    }
-    const rows = await Pool.query(
-      connection,
-      `
-			SELECT ${['g_a.app_id', 'g_a.last_update', ...Object.values(columns)].join(
-        ', '
-      )}
+	/**
+	 * @param {import('mysql').PoolConnection} connection
+	 * @param {import('express').Request} req
+	 * @param {Array<number>} ids
+	 */
+	static async get(connection, req, ids) {
+		const columns = {
+			name: 'g_an.name',
+			released: 'g_a.released',
+			removed: 'g_a.removed',
+			steam_cloud: 'g_a.steam_cloud',
+			trading_cards: 'g_a.trading_cards',
+			learning: 'g_a.learning',
+			multiplayer: 'g_a.multiplayer',
+			singleplayer: 'g_a.singleplayer',
+			linux: 'g_a.linux',
+			mac: 'g_a.mac',
+			windows: 'g_a.windows',
+			achievements: 'g_a.achievements',
+			price: 'g_a.price',
+			metacritic: 'g_a.metacritic_score, g_a.metacritic_id',
+			rating: 'g_a.rating_percentage, g_a.rating_count',
+			release_date: 'g_a.release_date',
+			genres: 'g_ag_j.genres',
+			tags: 'g_at_j.tags',
+			base: 'g_d.app_id AS base',
+			dlcs: 'g_d_j.dlcs',
+			subs: 'g_sa_j.subs',
+			bundles: 'g_ba_j.bundles',
+		};
+		const columnKeys = Object.keys(columns);
+		const params = Object.assign({}, { filters: req.query.filters || req.query.app_filters || '' });
+		const validator = {
+			filters: {
+				message: `Must be a comma-separated list containing the following values: ${columnKeys.join(
+					', '
+				)}`,
+				regex: new RegExp(`^(((${columnKeys.join('|')}),?)+)?$`),
+			},
+		};
+		Utils.validateParams(params, validator);
+		if (params.filters) {
+			const filterKeys = params.filters.split(',');
+			for (const columnKey of columnKeys) {
+				if (!filterKeys.includes(columnKey)) {
+					delete columns[columnKey];
+				}
+			}
+		}
+		const rows = await Pool.query(
+			connection,
+			`
+			SELECT ${['g_a.app_id', 'g_a.last_update', ...Object.values(columns)].join(', ')}
 			FROM games__app AS g_a
 			${
-        Utils.isSet(columns.name)
-          ? `
+				Utils.isSet(columns.name)
+					? `
 				INNER JOIN games__app_name AS g_an
 				ON g_a.app_id = g_an.app_id
 			`
-          : ''
-      }
+					: ''
+			}
 			${
-        Utils.isSet(columns.genres)
-          ? `
+				Utils.isSet(columns.genres)
+					? `
 				LEFT JOIN (
 					SELECT g_ag.app_id, GROUP_CONCAT(DISTINCT g_g.name) AS genres
 					FROM games__app_genre AS g_ag
@@ -125,11 +120,11 @@ class App {
 				) AS g_ag_j
 				ON g_a.app_id = g_ag_j.app_id
 			`
-          : ''
-      }
+					: ''
+			}
 			${
-        Utils.isSet(columns.tags)
-          ? `
+				Utils.isSet(columns.tags)
+					? `
 				LEFT JOIN (
 					SELECT g_at.app_id, GROUP_CONCAT(DISTINCT g_t.name) AS tags
 					FROM games__app_tag AS g_at
@@ -139,19 +134,19 @@ class App {
 				) AS g_at_j
 				ON g_a.app_id = g_at_j.app_id
 			`
-          : ''
-      }
+					: ''
+			}
 			${
-        Utils.isSet(columns.base)
-          ? `
+				Utils.isSet(columns.base)
+					? `
 				LEFT JOIN games__dlc AS g_d
 				ON g_a.app_id = g_d.dlc_id
 			`
-          : ''
-      }
+					: ''
+			}
 			${
-        Utils.isSet(columns.dlcs)
-          ? `
+				Utils.isSet(columns.dlcs)
+					? `
 				LEFT JOIN (
 					SELECT g_d_i.app_id, GROUP_CONCAT(DISTINCT g_d_i.dlc_id) AS dlcs
 					FROM games__dlc AS g_d_i
@@ -159,11 +154,11 @@ class App {
 				) AS g_d_j
 				ON g_a.app_id = g_d_j.app_id
 			`
-          : ''
-      }
+					: ''
+			}
 			${
-        Utils.isSet(columns.subs)
-          ? `
+				Utils.isSet(columns.subs)
+					? `
 				LEFT JOIN (
 					SELECT g_sa.app_id, GROUP_CONCAT(DISTINCT g_sa.sub_id) AS subs
 					FROM games__sub_app AS g_sa
@@ -171,11 +166,11 @@ class App {
 				) AS g_sa_j
 				ON g_a.app_id = g_sa_j.app_id
 			`
-          : ''
-      }
+					: ''
+			}
 			${
-        Utils.isSet(columns.bundles)
-          ? `
+				Utils.isSet(columns.bundles)
+					? `
 				LEFT JOIN (
 					SELECT g_ba.app_id, GROUP_CONCAT(DISTINCT g_ba.bundle_id) AS bundles
 					FROM games__bundle_app AS g_ba
@@ -183,395 +178,326 @@ class App {
 				) AS g_ba_j
 				ON g_a.app_id = g_ba_j.app_id
 			`
-          : ''
-      }
+					: ''
+			}
 			WHERE ${ids.map((id) => `g_a.app_id = ${connection.escape(id)}`).join(' OR ')}
 			GROUP BY g_a.app_id
 		`
-    );
-    const apps = [];
-    const now = Math.trunc(Date.now() / 1e3);
-    for (const row of rows) {
-      const lastUpdate = Math.trunc(
-        new Date(parseInt(row.last_update) * 1e3).getTime() / 1e3
-      );
-      const differenceInSeconds = now - lastUpdate;
-      if (
-        differenceInSeconds < 60 * 60 * 24 * 7 &&
-        (Utils.isSet(row.rating) ||
-          row.removed ||
-          differenceInSeconds < 60 * 60 * 24)
-      ) {
-        const app = {
-          app_id: row.app_id,
-        };
-        if (Utils.isSet(columns.name)) {
-          app.name = row.name;
-        }
-        if (Utils.isSet(columns.released)) {
-          app.released = !!row.released;
-        }
-        if (Utils.isSet(columns.removed)) {
-          app.removed = !!row.removed;
-        }
-        if (Utils.isSet(columns.steam_cloud)) {
-          app.steam_cloud = !!row.steam_cloud;
-        }
-        if (Utils.isSet(columns.trading_cards)) {
-          app.trading_cards = !!row.trading_cards;
-        }
-        if (Utils.isSet(columns.learning)) {
-          app.learning = Utils.isSet(row.learning) ? !!row.learning : null;
-        }
-        if (Utils.isSet(columns.multiplayer)) {
-          app.multiplayer = !!row.multiplayer;
-        }
-        if (Utils.isSet(columns.singleplayer)) {
-          app.singleplayer = !!row.singleplayer;
-        }
-        if (Utils.isSet(columns.linux)) {
-          app.linux = !!row.linux;
-        }
-        if (Utils.isSet(columns.mac)) {
-          app.mac = !!row.mac;
-        }
-        if (Utils.isSet(columns.windows)) {
-          app.windows = !!row.windows;
-        }
-        if (Utils.isSet(columns.achievements)) {
-          app.achievements = row.achievements;
-        }
-        if (Utils.isSet(columns.price)) {
-          app.price = row.price;
-        }
-        if (Utils.isSet(columns.metacritic)) {
-          app.metacritic = Utils.isSet(row.metacritic_score)
-            ? {
-                score: row.metacritic_score,
-                url: `https://www.metacritic.com/game/pc/${row.metacritic_id}`,
-              }
-            : null;
-        }
-        if (Utils.isSet(columns.rating)) {
-          app.rating = Utils.isSet(row.rating_percentage)
-            ? {
-                percentage: row.rating_percentage,
-                count: row.rating_count,
-              }
-            : null;
-        }
-        if (Utils.isSet(columns.release_date)) {
-          app.release_date = Utils.isSet(row.release_date)
-            ? Utils.formatDate(parseInt(row.release_date) * 1e3)
-            : null;
-        }
-        if (Utils.isSet(columns.genres)) {
-          app.genres = row.genres ? row.genres.split(',') : [];
-        }
-        if (Utils.isSet(columns.tags)) {
-          app.tags = row.tags ? row.tags.split(',') : [];
-        }
-        if (Utils.isSet(columns.base)) {
-          app.base = Utils.isSet(row.base) ? row.base : null;
-        }
-        if (Utils.isSet(columns.dlcs)) {
-          app.dlcs = row.dlcs
-            ? row.dlcs.split(',').map((dlcId) => parseInt(dlcId))
-            : [];
-        }
-        if (Utils.isSet(columns.subs)) {
-          app.subs = row.subs
-            ? row.subs.split(',').map((subId) => parseInt(subId))
-            : [];
-        }
-        if (Utils.isSet(columns.bundles)) {
-          app.bundles = row.bundles
-            ? row.bundles.split(',').map((bundleId) => parseInt(bundleId))
-            : [];
-        }
-        app.last_update = Utils.formatDate(
-          parseInt(row.last_update) * 1e3,
-          true
-        );
-        apps.push(app);
-      }
-    }
-    return apps;
-  }
+		);
+		const apps = [];
+		const now = Math.trunc(Date.now() / 1e3);
+		for (const row of rows) {
+			const lastUpdate = Math.trunc(new Date(parseInt(row.last_update) * 1e3).getTime() / 1e3);
+			const differenceInSeconds = now - lastUpdate;
+			if (
+				differenceInSeconds < 60 * 60 * 24 * 7 &&
+				(Utils.isSet(row.rating) || row.removed || differenceInSeconds < 60 * 60 * 24)
+			) {
+				const app = {
+					app_id: row.app_id,
+				};
+				if (Utils.isSet(columns.name)) {
+					app.name = row.name;
+				}
+				if (Utils.isSet(columns.released)) {
+					app.released = !!row.released;
+				}
+				if (Utils.isSet(columns.removed)) {
+					app.removed = !!row.removed;
+				}
+				if (Utils.isSet(columns.steam_cloud)) {
+					app.steam_cloud = !!row.steam_cloud;
+				}
+				if (Utils.isSet(columns.trading_cards)) {
+					app.trading_cards = !!row.trading_cards;
+				}
+				if (Utils.isSet(columns.learning)) {
+					app.learning = Utils.isSet(row.learning) ? !!row.learning : null;
+				}
+				if (Utils.isSet(columns.multiplayer)) {
+					app.multiplayer = !!row.multiplayer;
+				}
+				if (Utils.isSet(columns.singleplayer)) {
+					app.singleplayer = !!row.singleplayer;
+				}
+				if (Utils.isSet(columns.linux)) {
+					app.linux = !!row.linux;
+				}
+				if (Utils.isSet(columns.mac)) {
+					app.mac = !!row.mac;
+				}
+				if (Utils.isSet(columns.windows)) {
+					app.windows = !!row.windows;
+				}
+				if (Utils.isSet(columns.achievements)) {
+					app.achievements = row.achievements;
+				}
+				if (Utils.isSet(columns.price)) {
+					app.price = row.price;
+				}
+				if (Utils.isSet(columns.metacritic)) {
+					app.metacritic = Utils.isSet(row.metacritic_score)
+						? {
+								score: row.metacritic_score,
+								url: `https://www.metacritic.com/game/pc/${row.metacritic_id}`,
+						  }
+						: null;
+				}
+				if (Utils.isSet(columns.rating)) {
+					app.rating = Utils.isSet(row.rating_percentage)
+						? {
+								percentage: row.rating_percentage,
+								count: row.rating_count,
+						  }
+						: null;
+				}
+				if (Utils.isSet(columns.release_date)) {
+					app.release_date = Utils.isSet(row.release_date)
+						? Utils.formatDate(parseInt(row.release_date) * 1e3)
+						: null;
+				}
+				if (Utils.isSet(columns.genres)) {
+					app.genres = row.genres ? row.genres.split(',') : [];
+				}
+				if (Utils.isSet(columns.tags)) {
+					app.tags = row.tags ? row.tags.split(',') : [];
+				}
+				if (Utils.isSet(columns.base)) {
+					app.base = Utils.isSet(row.base) ? row.base : null;
+				}
+				if (Utils.isSet(columns.dlcs)) {
+					app.dlcs = row.dlcs ? row.dlcs.split(',').map((dlcId) => parseInt(dlcId)) : [];
+				}
+				if (Utils.isSet(columns.subs)) {
+					app.subs = row.subs ? row.subs.split(',').map((subId) => parseInt(subId)) : [];
+				}
+				if (Utils.isSet(columns.bundles)) {
+					app.bundles = row.bundles
+						? row.bundles.split(',').map((bundleId) => parseInt(bundleId))
+						: [];
+				}
+				app.last_update = Utils.formatDate(parseInt(row.last_update) * 1e3, true);
+				apps.push(app);
+			}
+		}
+		return apps;
+	}
 
-  /**
-   * @param {import('mysql').PoolConnection} connection
-   * @param {number} appId
-   */
-  static async fetch(connection, appId) {
-    const apiUrl = `https://store.steampowered.com/api/appdetails?appids=${appId}&filters=achievements,basic,categories,genres,metacritic,name,packages,platforms,price_overview,release_date&cc=us&l=en`;
-    const apiResponse = await Request.get(apiUrl);
-    if (!apiResponse || !apiResponse.json || !apiResponse.json[appId]) {
-      throw new CustomError(CustomError.COMMON_MESSAGES.steam, 500);
-    }
-    const apiData = apiResponse.json[appId].success
-      ? apiResponse.json[appId].data
-      : null;
-    if (!apiData || (apiData.type !== 'game' && apiData.type !== 'dlc')) {
-      return;
-    }
-    const storeUrl = `https://store.steampowered.com/app/${appId}?cc=us&l=en`;
-    const storeConfig = {
-      headers: {
-        Cookie: 'birthtime=0; mature_content=1;',
-      },
-    };
-    const storeResponse = await Request.get(storeUrl, storeConfig);
-    if (!storeResponse.html) {
-      throw new CustomError(CustomError.COMMON_MESSAGES.steam, 500);
-    }
-    const isStoreResponseOk = !!storeResponse.html.querySelector(
-      '.apphub_AppName'
-    );
-    const releaseDate = apiData.release_date;
-    const removed = !storeResponse.url.match(
-      new RegExp(`store\.steampowered\.com.*?\/app\/${appId}`)
-    );
-    const categories = apiData.categories
-      ? apiData.categories.map((category) => category.description.toLowerCase())
-      : [];
-    const platforms = apiData.platforms;
-    const metacritic = apiData.metacritic;
-    let rating = null;
-    if (isStoreResponseOk && !removed) {
-      const elements = storeResponse.html.querySelectorAll(
-        '.user_reviews_summary_row'
-      );
-      const numElements = elements.length;
-      if (numElements > 0) {
-        const text = elements[numElements - 1].dataset.tooltipHtml.replace(
-          /[,.]/,
-          ''
-        );
-        rating = text.match(/(\d+)%.+?(\d+)/);
-      }
-    }
-    const app = {
-      app_id: appId,
-      released: !releaseDate.coming_soon,
-      removed: removed,
-      steam_cloud: categories.includes('steam cloud'),
-      trading_cards: categories.includes('steam trading cards'),
-      learning: isStoreResponseOk
-        ? !!storeResponse.html.querySelector('.learning_about')
-        : null,
-      multiplayer:
-        [
-          'multi-player',
-          'online multi-player',
-          'co-op',
-          'local co-op',
-          'online co-op',
-          'shared/split screen',
-        ].filter((category) => categories.includes(category)).length > 0,
-      singleplayer: categories.includes('single-player'),
-      linux: platforms.linux,
-      mac: platforms.mac,
-      windows: platforms.windows,
-      achievements: parseInt(
-        (apiData.achievements && apiData.achievements.total) || 0
-      ),
-      price: parseInt(
-        (apiData.price_overview && apiData.price_overview.initial) || 0
-      ),
-      metacritic_score: metacritic ? parseInt(metacritic.score) : null,
-      metacritic_id: metacritic
-        ? metacritic.url.replace(
-            /https:\/\/www\.metacritic\.com\/game\/pc\/|\?.+/,
-            ''
-          )
-        : null,
-      rating_percentage: rating ? parseInt(rating[1]) : null,
-      rating_count: rating ? parseInt(rating[2]) : null,
-      release_date: null,
-      last_update: Math.trunc(Date.now() / 1e3),
-    };
-    if (releaseDate.date) {
-      const timestamp = new Date(
-        `${releaseDate.date.replace(/st|nd|rd|th/, '')} UTC`
-      ).getTime();
-      if (!Number.isNaN(timestamp)) {
-        app['release_date'] = Math.trunc(timestamp / 1e3);
-      }
-    }
-    const genres = [];
-    if (apiData.genres) {
-      for (const genre of apiData.genres) {
-        genres.push({
-          id: parseInt(genre.id),
-          name: genre.description.trim(),
-        });
-      }
-    }
-    const tags = [];
-    if (isStoreResponseOk && !removed) {
-      const matches = storeResponse.text.match(
-        /InitAppTagModal[\S\s]*?(\[[\S\s]*?]),/
-      );
-      if (matches) {
-        const elements = JSON.parse(matches[1]);
-        for (const element of elements) {
-          tags.push({
-            id: parseInt(element.tagid),
-            name: element.name,
-          });
-        }
-      }
-    }
-    const base =
-      parseInt(
-        (apiData.type === 'dlc' &&
-          apiData.fullgame &&
-          apiData.fullgame.appid) ||
-          0
-      ) || null;
-    const dlcs = apiData.dlc ? apiData.dlc.map((item) => parseInt(item)) : [];
-    const subs = apiData.packages
-      ? apiData.packages.map((item) => parseInt(item))
-      : [];
-    const bundles = [];
-    if (isStoreResponseOk && !removed) {
-      const elements = storeResponse.html.querySelectorAll(
-        '[data-ds-bundleid]'
-      );
-      for (const element of elements) {
-        bundles.push(parseInt(element.dataset.dsBundleid));
-      }
-    }
-    await Pool.beginTransaction(connection);
-    try {
-      const columns = Object.keys(app);
-      const values = Object.values(app);
-      await Pool.query(
-        connection,
-        `
+	/**
+	 * @param {import('mysql').PoolConnection} connection
+	 * @param {number} appId
+	 */
+	static async fetch(connection, appId) {
+		const apiUrl = `https://store.steampowered.com/api/appdetails?appids=${appId}&filters=achievements,basic,categories,genres,metacritic,name,packages,platforms,price_overview,release_date&cc=us&l=en`;
+		const apiResponse = await Request.get(apiUrl);
+		if (!apiResponse || !apiResponse.json || !apiResponse.json[appId]) {
+			throw new CustomError(CustomError.COMMON_MESSAGES.steam, 500);
+		}
+		const apiData = apiResponse.json[appId].success ? apiResponse.json[appId].data : null;
+		if (!apiData || (apiData.type !== 'game' && apiData.type !== 'dlc')) {
+			return;
+		}
+		const storeUrl = `https://store.steampowered.com/app/${appId}?cc=us&l=en`;
+		const storeConfig = {
+			headers: {
+				Cookie: 'birthtime=0; mature_content=1;',
+			},
+		};
+		const storeResponse = await Request.get(storeUrl, storeConfig);
+		if (!storeResponse.html) {
+			throw new CustomError(CustomError.COMMON_MESSAGES.steam, 500);
+		}
+		const isStoreResponseOk = !!storeResponse.html.querySelector('.apphub_AppName');
+		const releaseDate = apiData.release_date;
+		const removed = !storeResponse.url.match(
+			new RegExp(`store\.steampowered\.com.*?\/app\/${appId}`)
+		);
+		const categories = apiData.categories
+			? apiData.categories.map((category) => category.description.toLowerCase())
+			: [];
+		const platforms = apiData.platforms;
+		const metacritic = apiData.metacritic;
+		let rating = null;
+		if (isStoreResponseOk && !removed) {
+			const elements = storeResponse.html.querySelectorAll('.user_reviews_summary_row');
+			const numElements = elements.length;
+			if (numElements > 0) {
+				const text = elements[numElements - 1].dataset.tooltipHtml.replace(/[,.]/, '');
+				rating = text.match(/(\d+)%.+?(\d+)/);
+			}
+		}
+		const app = {
+			app_id: appId,
+			released: !releaseDate.coming_soon,
+			removed: removed,
+			steam_cloud: categories.includes('steam cloud'),
+			trading_cards: categories.includes('steam trading cards'),
+			learning: isStoreResponseOk ? !!storeResponse.html.querySelector('.learning_about') : null,
+			multiplayer:
+				[
+					'multi-player',
+					'online multi-player',
+					'co-op',
+					'local co-op',
+					'online co-op',
+					'shared/split screen',
+				].filter((category) => categories.includes(category)).length > 0,
+			singleplayer: categories.includes('single-player'),
+			linux: platforms.linux,
+			mac: platforms.mac,
+			windows: platforms.windows,
+			achievements: parseInt((apiData.achievements && apiData.achievements.total) || 0),
+			price: parseInt((apiData.price_overview && apiData.price_overview.initial) || 0),
+			metacritic_score: metacritic ? parseInt(metacritic.score) : null,
+			metacritic_id: metacritic
+				? metacritic.url.replace(/https:\/\/www\.metacritic\.com\/game\/pc\/|\?.+/, '')
+				: null,
+			rating_percentage: rating ? parseInt(rating[1]) : null,
+			rating_count: rating ? parseInt(rating[2]) : null,
+			release_date: null,
+			last_update: Math.trunc(Date.now() / 1e3),
+		};
+		if (releaseDate.date) {
+			const timestamp = new Date(`${releaseDate.date.replace(/st|nd|rd|th/, '')} UTC`).getTime();
+			if (!Number.isNaN(timestamp)) {
+				app['release_date'] = Math.trunc(timestamp / 1e3);
+			}
+		}
+		const genres = [];
+		if (apiData.genres) {
+			for (const genre of apiData.genres) {
+				genres.push({
+					id: parseInt(genre.id),
+					name: genre.description.trim(),
+				});
+			}
+		}
+		const tags = [];
+		if (isStoreResponseOk && !removed) {
+			const matches = storeResponse.text.match(/InitAppTagModal[\S\s]*?(\[[\S\s]*?]),/);
+			if (matches) {
+				const elements = JSON.parse(matches[1]);
+				for (const element of elements) {
+					tags.push({
+						id: parseInt(element.tagid),
+						name: element.name,
+					});
+				}
+			}
+		}
+		const base =
+			parseInt((apiData.type === 'dlc' && apiData.fullgame && apiData.fullgame.appid) || 0) || null;
+		const dlcs = apiData.dlc ? apiData.dlc.map((item) => parseInt(item)) : [];
+		const subs = apiData.packages ? apiData.packages.map((item) => parseInt(item)) : [];
+		const bundles = [];
+		if (isStoreResponseOk && !removed) {
+			const elements = storeResponse.html.querySelectorAll('[data-ds-bundleid]');
+			for (const element of elements) {
+				bundles.push(parseInt(element.dataset.dsBundleid));
+			}
+		}
+		await Pool.beginTransaction(connection);
+		try {
+			const columns = Object.keys(app);
+			const values = Object.values(app);
+			await Pool.query(
+				connection,
+				`
 				INSERT INTO games__app (${columns.join(', ')})
 				VALUES (${values.map((value) => connection.escape(value)).join(', ')})
-				ON DUPLICATE KEY UPDATE ${columns
-          .map((column) => `${column} = VALUES(${column})`)
-          .join(', ')}
+				ON DUPLICATE KEY UPDATE ${columns.map((column) => `${column} = VALUES(${column})`).join(', ')}
 			`
-      );
-      await Pool.query(
-        connection,
-        `
+			);
+			await Pool.query(
+				connection,
+				`
 				INSERT IGNORE INTO games__app_name (app_id, name)
 				VALUES (${connection.escape(appId)}, ${connection.escape(apiData.name)})
 			`
-      );
-      if (genres.length > 0) {
-        await Pool.query(
-          connection,
-          `
+			);
+			if (genres.length > 0) {
+				await Pool.query(
+					connection,
+					`
 					INSERT IGNORE INTO games__genre (genre_id, name)
 					VALUES ${genres
-            .map(
-              (genre) =>
-                `(${connection.escape(genre.id)}, ${connection.escape(
-                  genre.name
-                )})`
-            )
-            .join(', ')}
+						.map((genre) => `(${connection.escape(genre.id)}, ${connection.escape(genre.name)})`)
+						.join(', ')}
 				`
-        );
-        await Pool.query(
-          connection,
-          `
+				);
+				await Pool.query(
+					connection,
+					`
 					INSERT IGNORE INTO games__app_genre (app_id, genre_id)
 					VALUES ${genres
-            .map(
-              (genre) =>
-                `(${connection.escape(appId)}, ${connection.escape(genre.id)})`
-            )
-            .join(', ')}
+						.map((genre) => `(${connection.escape(appId)}, ${connection.escape(genre.id)})`)
+						.join(', ')}
 				`
-        );
-      }
-      if (tags.length > 0) {
-        await Pool.query(
-          connection,
-          `
+				);
+			}
+			if (tags.length > 0) {
+				await Pool.query(
+					connection,
+					`
 					INSERT IGNORE INTO games__tag (tag_id, name)
 					VALUES ${tags
-            .map(
-              (tag) =>
-                `(${connection.escape(tag.id)}, ${connection.escape(tag.name)})`
-            )
-            .join(', ')}
+						.map((tag) => `(${connection.escape(tag.id)}, ${connection.escape(tag.name)})`)
+						.join(', ')}
 				`
-        );
-        await Pool.query(
-          connection,
-          `
+				);
+				await Pool.query(
+					connection,
+					`
 					INSERT IGNORE INTO games__app_tag (app_id, tag_id)
 					VALUES ${tags
-            .map(
-              (tag) =>
-                `(${connection.escape(appId)}, ${connection.escape(tag.id)})`
-            )
-            .join(', ')}
+						.map((tag) => `(${connection.escape(appId)}, ${connection.escape(tag.id)})`)
+						.join(', ')}
 				`
-        );
-      }
-      if (base || dlcs.length > 0) {
-        await Pool.query(
-          connection,
-          `
+				);
+			}
+			if (base || dlcs.length > 0) {
+				await Pool.query(
+					connection,
+					`
 					INSERT IGNORE INTO games__dlc (dlc_id, app_id)
 					VALUES ${
-            base
-              ? `(${connection.escape(appId)}, ${connection.escape(base)})`
-              : dlcs
-                  .map(
-                    (dlcId) =>
-                      `(${connection.escape(dlcId)}, ${connection.escape(
-                        appId
-                      )})`
-                  )
-                  .join(', ')
-          }
+						base
+							? `(${connection.escape(appId)}, ${connection.escape(base)})`
+							: dlcs
+									.map((dlcId) => `(${connection.escape(dlcId)}, ${connection.escape(appId)})`)
+									.join(', ')
+					}
 				`
-        );
-      }
-      if (subs.length > 0) {
-        await Pool.query(
-          connection,
-          `
+				);
+			}
+			if (subs.length > 0) {
+				await Pool.query(
+					connection,
+					`
 					INSERT IGNORE INTO games__sub_app (sub_id, app_id)
 					VALUES ${subs
-            .map(
-              (subId) =>
-                `(${connection.escape(subId)}, ${connection.escape(appId)})`
-            )
-            .join(', ')}
+						.map((subId) => `(${connection.escape(subId)}, ${connection.escape(appId)})`)
+						.join(', ')}
 				`
-        );
-      }
-      if (bundles.length > 0) {
-        await Pool.query(
-          connection,
-          `
+				);
+			}
+			if (bundles.length > 0) {
+				await Pool.query(
+					connection,
+					`
 					INSERT IGNORE INTO games__bundle_app (bundle_id, app_id)
 					VALUES ${bundles
-            .map(
-              (bundleId) =>
-                `(${connection.escape(bundleId)}, ${connection.escape(appId)})`
-            )
-            .join(', ')}
+						.map((bundleId) => `(${connection.escape(bundleId)}, ${connection.escape(appId)})`)
+						.join(', ')}
 				`
-        );
-      }
-      await Pool.commit(connection);
-    } catch (err) {
-      await Pool.rollback(connection);
-      throw err;
-    }
-  }
+				);
+			}
+			await Pool.commit(connection);
+		} catch (err) {
+			await Pool.rollback(connection);
+			throw err;
+		}
+	}
 }
 
 module.exports = App;

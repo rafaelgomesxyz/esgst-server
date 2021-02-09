@@ -26,92 +26,91 @@ const Sub = require('./Sub');
  */
 
 class Game {
-  /**
-   * @param {import('express').Request} req
-   * @param {import('express').Response} res
-   */
-  static async get(req, res) {
-    /** @type {import('mysql').PoolConnection} */
-    let connection = null;
-    try {
-      connection = await Pool.getConnection();
-      const result = await Game._find(connection, req);
-      if (connection) {
-        connection.release();
-      }
-      res.status(200).json({
-        error: null,
-        result: result ? result : null,
-      });
-    } catch (err) {
-      if (connection) {
-        connection.release();
-      }
-      console.log(
-        `GET ${req.route.path} failed with params ${JSON.stringify(
-          req.params
-        )} and query ${JSON.stringify(req.query)}: ${err.message} ${
-          err.stack ? err.stack.replace(/\n/g, ' ') : ''
-        }`
-      );
-      if (!err.status) {
-        err.status = 500;
-        err.message = CustomError.COMMON_MESSAGES.internal;
-      }
-      res.status(err.status).json({
-        error: err.message,
-        result: null,
-      });
-    }
-  }
+	/**
+	 * @param {import('express').Request} req
+	 * @param {import('express').Response} res
+	 */
+	static async get(req, res) {
+		/** @type {import('mysql').PoolConnection} */
+		let connection = null;
+		try {
+			connection = await Pool.getConnection();
+			const result = await Game._find(connection, req);
+			if (connection) {
+				connection.release();
+			}
+			res.status(200).json({
+				error: null,
+				result: result ? result : null,
+			});
+		} catch (err) {
+			if (connection) {
+				connection.release();
+			}
+			console.log(
+				`GET ${req.route.path} failed with params ${JSON.stringify(
+					req.params
+				)} and query ${JSON.stringify(req.query)}: ${err.message} ${
+					err.stack ? err.stack.replace(/\n/g, ' ') : ''
+				}`
+			);
+			if (!err.status) {
+				err.status = 500;
+				err.message = CustomError.COMMON_MESSAGES.internal;
+			}
+			res.status(err.status).json({
+				error: err.message,
+				result: null,
+			});
+		}
+	}
 
-  /**
-   * @param {import('mysql').PoolConnection} connection
-   * @param {import('express').Request} req
-   */
-  static async _find(connection, req) {
-    const params = Object.assign({}, req.params);
-    const validator = {
-      type: {
-        message:
-          'Invalid {type}. Must be one of the following strings: app, sub, bundle.',
-        check: (type) => Game.TYPES.includes(type),
-      },
-      id: {
-        message: 'Invalid {id}. Must be an integer number e.g. 400.',
-        regex: /^\d+$/,
-        transform: (id) => parseInt(id),
-      },
-    };
-    Utils.validateParams(params, validator);
-    const ids = [params.id];
-    switch (params.type) {
-      case 'app': {
-        const result = (await App.get(connection, req, ids))[0];
-        if (result) {
-          return result;
-        }
-        await App.fetch(connection, params.id);
-        return (await App.get(connection, req, ids))[0];
-      }
-      case 'bundle': {
-        const result = (await Bundle.get(connection, req, ids))[0];
-        if (result) {
-          return result;
-        }
-        await Bundle.fetch(connection, params.id);
-        return (await Bundle.get(connection, req, ids))[0];
-      }
-      case 'sub': {
-        const result = (await Sub.get(connection, req, ids))[0];
-        if (result) {
-          return result;
-        }
-        await Sub.fetch(connection, params.id);
-        return (await Sub.get(connection, req, ids))[0];
-      }
-    }
-  }
+	/**
+	 * @param {import('mysql').PoolConnection} connection
+	 * @param {import('express').Request} req
+	 */
+	static async _find(connection, req) {
+		const params = Object.assign({}, req.params);
+		const validator = {
+			type: {
+				message: 'Invalid {type}. Must be one of the following strings: app, sub, bundle.',
+				check: (type) => Game.TYPES.includes(type),
+			},
+			id: {
+				message: 'Invalid {id}. Must be an integer number e.g. 400.',
+				regex: /^\d+$/,
+				transform: (id) => parseInt(id),
+			},
+		};
+		Utils.validateParams(params, validator);
+		const ids = [params.id];
+		switch (params.type) {
+			case 'app': {
+				const result = (await App.get(connection, req, ids))[0];
+				if (result) {
+					return result;
+				}
+				await App.fetch(connection, params.id);
+				return (await App.get(connection, req, ids))[0];
+			}
+			case 'bundle': {
+				const result = (await Bundle.get(connection, req, ids))[0];
+				if (result) {
+					return result;
+				}
+				await Bundle.fetch(connection, params.id);
+				return (await Bundle.get(connection, req, ids))[0];
+			}
+			case 'sub': {
+				const result = (await Sub.get(connection, req, ids))[0];
+				if (result) {
+					return result;
+				}
+				await Sub.fetch(connection, params.id);
+				return (await Sub.get(connection, req, ids))[0];
+			}
+		}
+	}
 }
 
 Game.TYPES = Object.freeze(['app', 'sub', 'bundle']);

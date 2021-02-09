@@ -3,7 +3,7 @@
 	"version": "1.0.0",
 	"description": "An API for ESGST.",
 	"title": "ESGST API",
-	"url" : "https://rafaelgssa.com/esgst",
+	"url": "https://rafaelgssa.com/esgst",
 	"sampleUrl": "https://rafaelgssa.com/esgst",
 	"header": {
 		"title": "",
