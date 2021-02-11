@@ -39,7 +39,7 @@ passport.use(
 		{
 			apiKey: config.secrets.steamApiKey,
 			realm: 'https://rafaelgssa.com/',
-			returnURL: 'http://rafaelgssa.com/esgst/login/return',
+			returnURL: 'https://rafaelgssa.com/esgst/login/return',
 		},
 		Auth.auth
 	)
