@@ -86,6 +86,21 @@ class _Pool {
 			});
 		});
 	}
+
+	/**
+	 * @param {import('mysql').PoolConnection} connection
+	 * @param {Function} callback
+	 */
+	async transaction(connection, callback) {
+		await this.beginTransaction(connection);
+		try {
+			await callback();
+			await this.commit(connection);
+		} catch (err) {
+			await this.rollback(connection);
+			throw err;
+		}
+	}
 }
 
 const Pool = new _Pool();

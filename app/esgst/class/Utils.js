@@ -1,6 +1,42 @@
+const Pool = require('./Connection');
 const CustomError = require('./CustomError');
 
 class Utils {
+	static async createRoute(type, req, res, callback) {
+		/** @type {import('mysql').PoolConnection} */
+		let connection = null;
+		try {
+			connection = await Pool.getConnection();
+			const result = await callback(connection, req);
+			if (connection) {
+				connection.release();
+			}
+			res.status(200).json({
+				error: null,
+				result: result ? result : null,
+			});
+		} catch (err) {
+			if (connection) {
+				connection.release();
+			}
+			console.log(
+				`${type} ${req.route.path} failed with params ${JSON.stringify(
+					req.params
+				)} and query ${JSON.stringify(req.query)}: ${err.message} ${
+					err.stack ? err.stack.replace(/\n/g, ' ') : ''
+				}`
+			);
+			if (!err.status) {
+				err.status = 500;
+				err.message = CustomError.COMMON_MESSAGES.internal;
+			}
+			res.status(err.status).json({
+				error: err.message,
+				result: null,
+			});
+		}
+	}
+
 	/**
 	 * @param {number} timestamp
 	 * @param {boolean} includeHours

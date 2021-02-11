@@ -1,5 +1,5 @@
-const CustomError = require('../../class/CustomError');
 const Pool = require('../../class/Connection');
+const Request = require('../../class/Request');
 const Utils = require('../../class/Utils');
 
 /**
@@ -68,38 +68,31 @@ class Ust {
 	 * @param {import('express').Response} res
 	 */
 	static async get(req, res) {
-		/** @type {import('mysql').PoolConnection} */
-		let connection = null;
-		try {
-			connection = await Pool.getConnection();
-			const result = await Ust._find(connection, req);
-			if (connection) {
-				connection.release();
-			}
-			res.status(200).json({
-				error: null,
-				result: result ? result : null,
-			});
-		} catch (err) {
-			if (connection) {
-				connection.release();
-			}
-			console.log(
-				`GET ${req.route.path} failed with params ${JSON.stringify(
-					req.params
-				)} and query ${JSON.stringify(req.query)}: ${err.message} ${
-					err.stack ? err.stack.replace(/\n/g, ' ') : ''
-				}`
-			);
-			if (!err.status) {
-				err.status = 500;
-				err.message = CustomError.COMMON_MESSAGES.internal;
-			}
-			res.status(err.status).json({
-				error: err.message,
-				result: null,
-			});
-		}
+		return Utils.createRoute('GET', req, res, Ust._find);
+	}
+
+	/**
+	 * @param {import('express').Request} req
+	 * @param {import('express').Response} res
+	 */
+	static async post(req, res) {
+		return Utils.createRoute('POST', req, res, Ust._insert);
+	}
+
+	/**
+	 * @param {import('express').Request} req
+	 * @param {import('express').Response} res
+	 */
+	static async getTicket(req, res) {
+		return Utils.createRoute('GET', req, res, Ust._findTicket);
+	}
+
+	/**
+	 * @param {import('express').Request} req
+	 * @param {import('express').Response} res
+	 */
+	static async postTicket(req, res) {
+		return Utils.createRoute('POST', req, res, Ust._insertTicket);
 	}
 
 	/**
@@ -190,6 +183,123 @@ class Ust {
 			result.not_found.push(steamId);
 		}
 		return result;
+	}
+
+	/**
+	 * @param {import('mysql').PoolConnection} connection
+	 * @param {import('express').Request} req
+	 */
+	static async _insert(connection, req) {
+		const params = Object.assign({}, req.body);
+		const tickets = params.tickets || [params];
+		const values = [];
+		for (const ticket of tickets) {
+			values.push([
+				connection.escape(ticket.ticketId),
+				connection.escape(ticket.steamId || null),
+				connection.escape(ticket.ticket),
+			]);
+		}
+		await Pool.transaction(connection, async () => {
+			await Pool.query(
+				connection,
+				`
+					INSERT IGNORE INTO users__ust_tickets (ticket_id, steam_id, ticket)
+					VALUES ${values.map((value) => `(${value.join(', ')})`).join(', ')}
+				`
+			);
+		});
+		return null;
+	}
+
+	/**
+	 * @param {import('mysql').PoolConnection} connection
+	 */
+	static async _findTicket(connection) {
+		const rows = await Pool.query(
+			connection,
+			`
+				SELECT ticket_id, steam_id, ticket
+				FROM users__ust_tickets
+				WHERE status IS NULL
+				LIMIT 1
+			`
+		);
+		if (rows.length > 0) {
+			const row = rows[0];
+			if (!row.steam_id) {
+				const username = row.ticket.match(/"\/user\/(.+?)"/)[1];
+				const response = await Request.get(`http://steamgifts.com/user/${username}?format=json`);
+				if (response.json) {
+					row.steam_id = response.json.user.steam_id;
+					await Pool.transaction(connection, async () => {
+						await Pool.query(
+							connection,
+							`
+								UPDATE users__ust_tickets
+								SET steam_id = ${connection.escape(row.steam_id)}
+								WHERE ticket_id = ${connection.escape(row.ticket_id)}
+							`
+						);
+					});
+				} else {
+					await Pool.transaction(connection, async () => {
+						await Pool.query(
+							connection,
+							`
+								UPDATE users__ust_tickets
+								SET status = "user_not_found"
+								WHERE ticket_id = ${connection.escape(row.ticket_id)}
+							`
+						);
+					});
+				}
+			}
+			return {
+				ticketId: row.ticket_id,
+				steamId: row.steam_id,
+				ticket: row.ticket,
+			};
+		}
+		return null;
+	}
+
+	/**
+	 * @param {import('mysql').PoolConnection} connection
+	 * @param {import('express').Request} req
+	 */
+	static async _insertTicket(connection, req) {
+		const params = Object.assign({}, req.body);
+		await Pool.transaction(connection, async () => {
+			await Pool.query(
+				connection,
+				`
+					UPDATE users__ust_tickets
+					SET steam_id = ${connection.escape(params.steamId)}, status = ${connection.escape(params.status)}
+					WHERE ticket_id = ${connection.escape(params.ticketId)}
+				`
+			);
+			if (params.notActivated || params.multiple) {
+				const columns = [];
+				const values = [];
+				if (params.notActivated) {
+					columns.push('not_activated');
+					values.push(connection.escape(params.notActivated));
+				}
+				if (params.multiple) {
+					columns.push('multiple');
+					values.push(connection.escape(params.multiple));
+				}
+				await Pool.query(
+					connection,
+					`
+						INSERT INTO users__ust (steam_id, ${columns.join(', ')})
+						VALUES (${connection.escape(params.steamId)}, ${values.join(', ')})
+						ON DUPLICATE KEY UPDATE ${columns.map((column, i) => `${column} = ${values[i]}`).join(', ')}
+					`
+				);
+			}
+		});
 	}
 }
 
