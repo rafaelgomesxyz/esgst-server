@@ -8,7 +8,6 @@ const config = {
 	},
 	secrets: {
 		secret: process.env.SECRET,
-		sgPhpSessId: process.env.SG_PHPSESSID,
 		sgToolsApiKey: process.env.SGTOOLS_APIKEY,
 		steamApiKey: process.env.STEAM_APIKEY,
 	},

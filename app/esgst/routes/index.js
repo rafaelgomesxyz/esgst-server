@@ -69,7 +69,6 @@ routes.get('/esgst/games', Games.get);
 routes.get('/esgst/games/sgids', SgIds.get);
 routes.get('/esgst/games/rcv', Rcv.get);
 routes.get('/esgst/games/ncv', Ncv.get);
-routes.post('/esgst/games/ncv', Ncv.post);
 routes.get('/esgst/user/\\+:steamid/uh', Uh.get);
 routes.get('/esgst/users/uh', Uh.get);
 routes.get('/esgst/users/ust', Ust.get);

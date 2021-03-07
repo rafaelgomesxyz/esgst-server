@@ -1,10 +1,7 @@
 const CustomError = require('../../class/CustomError');
 const Pool = require('../../class/Connection');
-const Request = require('../../class/Request');
 const Utils = require('../../class/Utils');
 const Game = require('./Game');
-const { JSDOM } = require('jsdom');
-const secrets = require('../../config').secrets;
 
 /**
  * @api {SCHEMA} NcvApp NcvApp
@@ -115,25 +112,6 @@ const secrets = require('../../config').secrets;
  * @apiError (Error Response (400, 500)) {NULL} output.result Always NULL in an error response.
  */
 
-/**
- * @api {POST} /games/ncv PostNcv
- * @apiGroup Games
- * @apiName PostNcv
- * @apiDescription Adds new information to the no CV games database.
- * @apiVersion 1.0.0
- *
- * @apiParam (Body Parameters) {Object} [apps] An object where the key is the Steam ID of the app and the value is either a date in the YYYY-MM-DD format corresponding to when it started giving no CV or NULL. If the date is provided, the app will be added to the database. Otherwise, it will be removed.
- * @apiParam (Body Parameters) {Object} [subs] An object where the key is the Steam ID of the sub and the value is either a date in the YYYY-MM-DD format corresponding to when it started giving no CV or NULL. If the date is provided, the sub will be added to the database. Otherwise, it will be removed.
- *
- * @apiSuccess (Success Response (200)) {Object} output
- * @apiSuccess (Success Response (200)) {NULL} output.error Always NULL in a success response.
- * @apiSuccess (Success Response (200)) {[NcvStatusObject](#api-Schemas-NcvStatusObject)} output.result The information requested.
- *
- * @apiError (Error Response (400, 500)) {Object} output
- * @apiError (Error Response (400, 500)) {String} output.error The error message.
- * @apiError (Error Response (400, 500)) {NULL} output.result Always NULL in an error response.
- */
-
 class Ncv {
 	/**
 	 * @param {import('express').Request} req
@@ -158,45 +136,6 @@ class Ncv {
 			}
 			console.log(
 				`GET ${req.route.path} failed with params ${JSON.stringify(
-					req.params
-				)} and query ${JSON.stringify(req.query)}: ${err.message} ${
-					err.stack ? err.stack.replace(/\n/g, ' ') : ''
-				}`
-			);
-			if (!err.status) {
-				err.status = 500;
-				err.message = CustomError.COMMON_MESSAGES.internal;
-			}
-			res.status(err.status).json({
-				error: err.message,
-				result: null,
-			});
-		}
-	}
-
-	/**
-	 * @param {import('express').Request} req
-	 * @param {import('express').Response} res
-	 */
-	static async post(req, res) {
-		/** @type {import('mysql').PoolConnection} */
-		let connection = null;
-		try {
-			connection = await Pool.getConnection();
-			const result = await Ncv._insert(connection, req);
-			if (connection) {
-				connection.release();
-			}
-			res.status(200).json({
-				error: null,
-				result,
-			});
-		} catch (err) {
-			if (connection) {
-				connection.release();
-			}
-			console.log(
-				`POST ${req.route.path} failed with params ${JSON.stringify(
 					req.params
 				)} and query ${JSON.stringify(req.query)}: ${err.message} ${
 					err.stack ? err.stack.replace(/\n/g, ' ') : ''
@@ -421,218 +360,14 @@ class Ncv {
 				result.not_found[`${type}s`].push(id);
 			}
 		}
-		const timestampRow = await Pool.query(
-			connection,
-			'SELECT name, date FROM timestamps WHERE name = "ncv_last_update"'
+		const timestampRow = (
+			await Pool.query(
+				connection,
+				'SELECT name, date FROM timestamps WHERE name = "ncv_last_update"'
+			)
 		)[0];
 		if (timestampRow) {
 			result.last_update = Utils.formatDate(parseInt(timestampRow.date) * 1e3, true);
-		}
-		return result;
-	}
-
-	/**
-	 * @param {import('mysql').PoolConnection} connection
-	 * @param {import('express').Request} req
-	 */
-	static async _insert(connection, req) {
-		// Check if PHPSESSID is valid. Otherwise, cannot add games reliably.
-		const url = 'https://www.steamgifts.com/ajax.php';
-		const testResponse = await Request.post(url, {
-			headers: {
-				Cookie: `PHPSESSID=${secrets.sgPhpSessId};`,
-			},
-			body: 'do=autocomplete_giveaway_game&page_number=1&search_query=test',
-		});
-		if (!testResponse || !testResponse.json) {
-			throw new CustomError(CustomError.COMMON_MESSAGES.internal, 500);
-		}
-
-		const addedDate = Math.trunc(Date.now() / 1e3);
-		const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
-		const message =
-			'Must be a valid { "id": "YYYY-MM-DD" } or { "id": null } object with at most 5 entries.';
-		const check = (games) => {
-			if (typeof games !== 'object' || Array.isArray(games)) {
-				return false;
-			}
-			const ids = Object.keys(games);
-			if (ids.length > 5) {
-				return false;
-			}
-			for (const id of ids) {
-				if (games[id] === null) {
-					continue;
-				}
-				if (!games[id].match(dateRegex)) {
-					return false;
-				}
-				games[id] = Math.trunc(new Date(`${games[id]}T00:00:00.000Z`).getTime() / 1e3);
-			}
-			return true;
-		};
-		const params = Object.assign({}, req.body);
-		const validator = {
-			apps: {
-				message: message,
-				check: check,
-			},
-			subs: {
-				message: message,
-				check: check,
-			},
-		};
-		Utils.validateParams(params, validator);
-		const result = {
-			apps: {},
-			subs: {},
-		};
-		const ncv = {
-			toAdd: {
-				app: [],
-				sub: [],
-			},
-			toRemove: {
-				app: [],
-				sub: [],
-			},
-		};
-		for (const type of Game.TYPES) {
-			if (type === 'bundle') {
-				continue;
-			}
-			const games = params[`${type}s`];
-			if (!Utils.isSet(games) || !games) {
-				continue;
-			}
-			const ids = Object.keys(games).map((id) => parseInt(id));
-			if (ids.length < 1) {
-				continue;
-			}
-			const rows = await Pool.query(
-				connection,
-				`
-				SELECT ${type}_id, effective_date
-				FROM games__${type}_ncv
-				WHERE ${ids.map((id) => `${type}_id = ${connection.escape(id)}`).join(' OR ')}
-			`
-			);
-			const rowsObj = {};
-			rows.forEach((row) => {
-				const id = parseInt(row[`${type}_id`]);
-				rowsObj[id] = row;
-			});
-			const idsFound = [];
-			for (const id of ids) {
-				const row = rowsObj[id];
-				if (row) {
-					const effective_date = parseInt(row.effective_date);
-					if (games[id] && games[id] === effective_date) {
-						result[`${type}s`][id] = 'already_added';
-						idsFound.push(id);
-						continue;
-					}
-				} else if (!games[id]) {
-					result[`${type}s`][id] = 'already_removed';
-					idsFound.push(id);
-					continue;
-				}
-				const response = await Request.post(url, {
-					headers: {
-						Cookie: `PHPSESSID=${secrets.sgPhpSessId};`,
-					},
-					body: `do=autocomplete_giveaway_game&page_number=1&search_query=${id}`,
-				});
-				if (!response || !response.json) {
-					continue;
-				}
-				const html = new JSDOM(response.json.html).window.document;
-				const element = html.querySelector(`.table__column__secondary-link[href*="${type}/${id}/"`);
-				if (!element) {
-					continue;
-				}
-				const container = element.parentElement.parentElement;
-				const dateElement = container.querySelector(
-					'[data-ui-tooltip*="Zero contributor value since..."]'
-				);
-				if (dateElement) {
-					const dateRows = JSON.parse(dateElement.getAttribute('data-ui-tooltip')).rows;
-					const date = Math.trunc(
-						new Date(`${dateRows[dateRows.length - 1].columns[1].name} UTC`).getTime() / 1e3
-					);
-					if (row) {
-						const effective_date = parseInt(row.effective_date);
-						if (date === effective_date) {
-							result[`${type}s`][id] = 'already_added';
-							idsFound.push(id);
-							continue;
-						}
-					}
-					ncv.toAdd[type].push({
-						id,
-						date,
-						name: container.querySelector('.table__column__heading').firstChild.textContent.trim(),
-					});
-					result[`${type}s`][id] = 'added';
-				} else if (row) {
-					ncv.toRemove[type].push(id);
-					result[`${type}s`][id] = 'removed';
-				} else {
-					result[`${type}s`][id] = 'not_found';
-				}
-				idsFound.push(id);
-			}
-			const idsNotFound = ids.filter((id) => !idsFound.includes(id));
-			for (const id of idsNotFound) {
-				result[`${type}s`][id] = 'not_found';
-			}
-		}
-		await Pool.beginTransaction(connection);
-		try {
-			for (const type of Game.TYPES) {
-				if (type === 'bundle') {
-					continue;
-				}
-				if (ncv.toAdd[type].length > 0) {
-					await Pool.query(
-						connection,
-						`
-						INSERT IGNORE INTO games__${type}_name (${type}_id, name)
-						VALUES ${ncv.toAdd[type]
-							.map((game) => `(${connection.escape(game.id)}, ${connection.escape(game.name)})`)
-							.join(', ')}
-					`
-					);
-					await Pool.query(
-						connection,
-						`
-						INSERT INTO games__${type}_ncv (${type}_id, effective_date, added_date, found)
-						VALUES ${ncv.toAdd[type]
-							.map(
-								(game) =>
-									`(${connection.escape(game.id)}, ${connection.escape(
-										game.date
-									)}, ${connection.escape(addedDate)}, TRUE)`
-							)
-							.join(', ')}
-						ON DUPLICATE KEY UPDATE effective_date = VALUES(effective_date), found = VALUES(found)
-					`
-					);
-				}
-				if (ncv.toRemove[type].length > 0) {
-					await Pool.query(
-						connection,
-						`
-						DELETE FROM games__${type}_ncv
-						WHERE ${ncv.toRemove[type].map((id) => `${type}_id = ${connection.escape(id)}`).join(' OR ')}
-					`
-					);
-				}
-			}
-			await Pool.commit(connection);
-		} catch (err) {
-			await Pool.rollback(connection);
-			throw err;
 		}
 		return result;
 	}
