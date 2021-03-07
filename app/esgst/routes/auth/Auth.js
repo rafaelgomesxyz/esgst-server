@@ -18,7 +18,7 @@ class Auth {
 		if (req.session.origin) {
 			res.redirect(req.session.origin);
 		} else {
-			res.redirect('/esgst');
+			res.redirect('/esgst/me');
 		}
 	}
 
@@ -44,7 +44,7 @@ class Auth {
 			if (req.query.origin) {
 				res.redirect(req.query.origin);
 			} else {
-				res.redirect('/esgst');
+				res.redirect('/esgst/me');
 			}
 		});
 	}
