@@ -59,25 +59,28 @@ async function updateUh(connection) {
 				if (differenceInSeconds >= 60 * 60 * 24 * 7) {
 					await Utils.timeout(1);
 					const url = `https://www.steamgifts.com/go/user/${steamId}`;
-					const response = await Request.head(url);
-					if (response.status === 429) {
+					try {
+						const response = await Request.head(url);
+						const parts = response.url.split('/user/');
+						const username = parts && parts.length === 2 ? parts[1] : '[DELETED]';
+						const values = {
+							steam_id: steamId,
+							usernames: row.usernames,
+							last_check: now,
+							last_update: row.last_update,
+						};
+						if (usernames[0] !== username) {
+							usernames.unshift(username);
+							values.usernames = usernames.join(', ');
+							values.last_update = now;
+						}
+						uh.push(values);
+					} catch (err) {
 						canceled = true;
+					}
+					if (canceled) {
 						break;
 					}
-					const parts = response.url.split('/user/');
-					const username = parts && parts.length === 2 ? parts[1] : '[DELETED]';
-					const values = {
-						steam_id: steamId,
-						usernames: row.usernames,
-						last_check: now,
-						last_update: row.last_update,
-					};
-					if (usernames[0] !== username) {
-						usernames.unshift(username);
-						values.usernames = usernames.join(', ');
-						values.last_update = now;
-					}
-					uh.push(values);
 				}
 			}
 			if (uh.length > 0) {
