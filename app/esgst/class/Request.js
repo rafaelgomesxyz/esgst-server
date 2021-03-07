@@ -65,6 +65,7 @@ class Request {
 				throw new Error(text);
 			}
 			const result = {
+				status: response.status,
 				/** @type {HTMLElement} */
 				html: null,
 				/** @type {Object} */

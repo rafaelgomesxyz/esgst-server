@@ -34,6 +34,7 @@ async function updateUh(connection) {
 	const now = Math.trunc(Date.now() / 1e3);
 	let index = jobJson.index;
 	let ended = false;
+	let canceled = false;
 	if (index == 0) {
 		console.log('Initializing...');
 	}
@@ -59,6 +60,10 @@ async function updateUh(connection) {
 					await Utils.timeout(1);
 					const url = `https://www.steamgifts.com/go/user/${steamId}`;
 					const response = await Request.head(url);
+					if (response.status === 429) {
+						canceled = true;
+						break;
+					}
 					const parts = response.url.split('/user/');
 					const username = parts && parts.length === 2 ? parts[1] : '[DELETED]';
 					const values = {
@@ -102,9 +107,15 @@ async function updateUh(connection) {
 				}
 			}
 		}
-		index += 100;
+		if (!canceled) {
+			index += 100;
+		}
 		fs.writeFileSync(path.resolve('./uh.json'), JSON.stringify({ index }));
-	} while (!ended);
-	fs.writeFileSync(path.resolve('./uh.json'), JSON.stringify({ index: 0 }));
-	console.log('Done!');
+	} while (!ended && !canceled);
+	if (canceled) {
+		console.log('Canceled!');
+	} else {
+		fs.writeFileSync(path.resolve('./uh.json'), JSON.stringify({ index: 0 }));
+		console.log('Done!');
+	}
 }
