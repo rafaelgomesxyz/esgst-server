@@ -7,16 +7,16 @@ const Request = require('../class/Request');
 const Utils = require('../class/Utils');
 const Game = require('../routes/games/Game');
 
-const jobJson = require('./rcv_sg.json');
+const jobJson = require('./rncv_sg.json');
 
-doRcvSgCronJob();
+doRncvSgCronJob();
 
-async function doRcvSgCronJob() {
+async function doRncvSgCronJob() {
 	/** @type {import('mysql').PoolConnection} */
 	let connection = null;
 	try {
 		connection = await Pool.getConnection();
-		await updateRcvSg(connection);
+		await updateRncvSg(connection);
 		if (connection) {
 			connection.release();
 		}
@@ -24,7 +24,7 @@ async function doRcvSgCronJob() {
 		if (connection) {
 			connection.release();
 		}
-		console.log(`RCV games update from SG failed: ${err}`);
+		console.log(`RCV/NCV games update from SG failed: ${err}`);
 	}
 	process.exit();
 }
@@ -32,7 +32,7 @@ async function doRcvSgCronJob() {
 /**
  * @param {import('mysql').PoolConnection} connection
  */
-async function updateRcvSg(connection) {
+async function updateRncvSg(connection) {
 	const addedDate = Math.trunc(Date.now() / 1e3);
 	let page = jobJson.page;
 	let ended = false;
@@ -45,6 +45,7 @@ async function updateRcvSg(connection) {
 					continue;
 				}
 				await Pool.query(connection, `UPDATE games__${type}_rcv SET found = FALSE`);
+				await Pool.query(connection, `UPDATE games__${type}_ncv SET found = FALSE`);
 			}
 			await Pool.commit(connection);
 		} catch (err) {
@@ -55,7 +56,7 @@ async function updateRcvSg(connection) {
 	do {
 		await Utils.timeout(1);
 		page += 1;
-		console.log(`Updating RCV games from SG (page ${page}...)`);
+		console.log(`Updating RCV/NCV games from SG (page ${page}...)`);
 		const names = {
 			app: [],
 			sub: [],
@@ -64,28 +65,31 @@ async function updateRcvSg(connection) {
 			app: [],
 			sub: [],
 		};
-		const url = `https://www.steamgifts.com/bundle-games/search?page=${page}`;
+		const ncv = {
+			app: [],
+			sub: [],
+		};
+		const url = `https://www.steamgifts.com/bundle-games/search?page=${page}&format=json`;
 		const response = await Request.get(url);
-		if (!response || !response.html) {
+		if (!response || !response.json || !response.json.success) {
 			throw new CustomError(CustomError.COMMON_MESSAGES.sg, 500);
 		}
-		const elements = response.html.querySelectorAll('.table__row-inner-wrap');
-		for (const element of elements) {
-			const link = element.querySelector('.table__column__secondary-link');
-			if (!link) {
-				continue;
+		const results = response.json.results;
+		for (const result of results) {
+			const type = result.app_id ? 'app' : 'sub';
+			const id = result.app_id || result.package_id;
+			const name = result.name;
+			const rcvTimestamp = result.reduced_value_timestamp;
+			const ncvTimestamp = result.no_value_timestamp;
+			if (name) {
+				names[type].push({ id, name });
 			}
-			const matches = link.getAttribute('href').match(/(app|sub)\/(\d+)/);
-			const type = matches[1];
-			const id = parseInt(matches[2]);
-			const name = element.querySelector('.table__column__heading').textContent;
-			const effectiveDate = Math.trunc(
-				new Date(
-					`${element.querySelector('.table__column--width-small').textContent} UTC`
-				).getTime() / 1e3
-			);
-			names[type].push({ id, name });
-			rcv[type].push({ id, effectiveDate });
+			if (rcvTimestamp) {
+				rcv[type].push({ id, effectiveDate: rcvTimestamp });
+			}
+			if (ncvTimestamp) {
+				ncv[type].push({ id, effectiveDate: ncvTimestamp });
+			}
 		}
 		await Pool.beginTransaction(connection);
 		try {
@@ -121,18 +125,32 @@ async function updateRcvSg(connection) {
 					`
 					);
 				}
+				if (ncv[type].length > 0) {
+					await Pool.query(
+						connection,
+						`
+						INSERT INTO games__${type}_ncv (${type}_id, effective_date, added_date, found)
+						VALUES ${ncv[type]
+							.map(
+								(ncv) =>
+									`(${connection.escape(ncv.id)}, ${connection.escape(
+										ncv.effectiveDate
+									)}, ${connection.escape(addedDate)}, TRUE)`
+							)
+							.join(', ')}
+						ON DUPLICATE KEY UPDATE effective_date = VALUES(effective_date), found = VALUES(found)
+					`
+					);
+				}
 			}
 			await Pool.commit(connection);
 		} catch (err) {
 			await Pool.rollback(connection);
 			throw err;
 		}
-		fs.writeFileSync(path.resolve('./rcv_sg.json'), JSON.stringify({ page }));
-		const pagination = response.html.querySelector('.pagination__navigation');
-		if (!pagination) {
-			throw new CustomError(CustomError.COMMON_MESSAGES.sg, 500);
-		}
-		ended = pagination.lastElementChild.classList.contains('is-selected');
+		fs.writeFileSync(path.resolve('./rncv_sg.json'), JSON.stringify({ page }));
+		const perPage = response.json.per_page;
+		ended = perPage !== results.length;
 	} while (!ended);
 	console.log('Finalizing...');
 	await Pool.beginTransaction(connection);
@@ -148,12 +166,21 @@ async function updateRcvSg(connection) {
 				WHERE found = FALSE
 			`
 			);
+			await Pool.query(
+				connection,
+				`
+				DELETE FROM games__${type}_ncv
+				WHERE found = FALSE
+			`
+			);
 		}
 		await Pool.query(
 			connection,
 			`
 			INSERT INTO timestamps (name, date)
-			VALUES ('rcv_last_update_from_sg', ${connection.escape(Math.trunc(Date.now() / 1e3))})
+			VALUES
+				('rcv_last_update_from_sg', ${connection.escape(Math.trunc(Date.now() / 1e3))}),
+				('ncv_last_update', ${connection.escape(Math.trunc(Date.now() / 1e3))})
 			ON DUPLICATE KEY UPDATE date = VALUES(date)
 		`
 		);
@@ -163,5 +190,5 @@ async function updateRcvSg(connection) {
 		throw err;
 	}
 	console.log('Done!');
-	fs.writeFileSync(path.resolve('./rcv_sg.json'), JSON.stringify({ page: 0 }));
+	fs.writeFileSync(path.resolve('./rncv_sg.json'), JSON.stringify({ page: 0 }));
 }
