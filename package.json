@@ -7,6 +7,7 @@
 		"docs": "apidoc -i ./app/esgst -o ./docs"
 	},
 	"dependencies": {
+		"compose-middleware": "^5.0.1",
 		"cookie-parser": "^1.4.5",
 		"cors": "^2.8.5",
 		"express": "^4.17.1",
