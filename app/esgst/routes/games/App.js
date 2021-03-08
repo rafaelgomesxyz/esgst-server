@@ -185,100 +185,117 @@ class App {
 		`
 		);
 		const apps = [];
+		const to_queue = [];
 		const now = Math.trunc(Date.now() / 1e3);
 		for (const row of rows) {
+			const app = {
+				app_id: row.app_id,
+			};
+			if (Utils.isSet(columns.name)) {
+				app.name = row.name;
+			}
+			if (Utils.isSet(columns.released)) {
+				app.released = !!row.released;
+			}
+			if (Utils.isSet(columns.removed)) {
+				app.removed = !!row.removed;
+			}
+			if (Utils.isSet(columns.steam_cloud)) {
+				app.steam_cloud = !!row.steam_cloud;
+			}
+			if (Utils.isSet(columns.trading_cards)) {
+				app.trading_cards = !!row.trading_cards;
+			}
+			if (Utils.isSet(columns.learning)) {
+				app.learning = Utils.isSet(row.learning) ? !!row.learning : null;
+			}
+			if (Utils.isSet(columns.multiplayer)) {
+				app.multiplayer = !!row.multiplayer;
+			}
+			if (Utils.isSet(columns.singleplayer)) {
+				app.singleplayer = !!row.singleplayer;
+			}
+			if (Utils.isSet(columns.linux)) {
+				app.linux = !!row.linux;
+			}
+			if (Utils.isSet(columns.mac)) {
+				app.mac = !!row.mac;
+			}
+			if (Utils.isSet(columns.windows)) {
+				app.windows = !!row.windows;
+			}
+			if (Utils.isSet(columns.achievements)) {
+				app.achievements = row.achievements;
+			}
+			if (Utils.isSet(columns.price)) {
+				app.price = row.price;
+			}
+			if (Utils.isSet(columns.metacritic)) {
+				app.metacritic = Utils.isSet(row.metacritic_score)
+					? {
+							score: row.metacritic_score,
+							url: `https://www.metacritic.com/game/pc/${row.metacritic_id}`,
+					  }
+					: null;
+			}
+			if (Utils.isSet(columns.rating)) {
+				app.rating = Utils.isSet(row.rating_percentage)
+					? {
+							percentage: row.rating_percentage,
+							count: row.rating_count,
+					  }
+					: null;
+			}
+			if (Utils.isSet(columns.release_date)) {
+				app.release_date = Utils.isSet(row.release_date)
+					? Utils.formatDate(parseInt(row.release_date) * 1e3)
+					: null;
+			}
+			if (Utils.isSet(columns.genres)) {
+				app.genres = row.genres ? row.genres.split(',') : [];
+			}
+			if (Utils.isSet(columns.tags)) {
+				app.tags = row.tags ? row.tags.split(',') : [];
+			}
+			if (Utils.isSet(columns.base)) {
+				app.base = Utils.isSet(row.base) ? row.base : null;
+			}
+			if (Utils.isSet(columns.dlcs)) {
+				app.dlcs = row.dlcs ? row.dlcs.split(',').map((dlcId) => parseInt(dlcId)) : [];
+			}
+			if (Utils.isSet(columns.subs)) {
+				app.subs = row.subs ? row.subs.split(',').map((subId) => parseInt(subId)) : [];
+			}
+			if (Utils.isSet(columns.bundles)) {
+				app.bundles = row.bundles
+					? row.bundles.split(',').map((bundleId) => parseInt(bundleId))
+					: [];
+			}
+			app.last_update = Utils.formatDate(parseInt(row.last_update) * 1e3, true);
 			const lastUpdate = Math.trunc(new Date(parseInt(row.last_update) * 1e3).getTime() / 1e3);
 			const differenceInSeconds = now - lastUpdate;
 			if (
-				differenceInSeconds < 60 * 60 * 24 * 7 &&
-				(Utils.isSet(row.rating) || row.removed || differenceInSeconds < 60 * 60 * 24)
+				differenceInSeconds > 60 * 60 * 24 * 7 ||
+				(!Utils.isSet(row.learning) && !row.removed && differenceInSeconds > 60 * 60 * 24)
 			) {
-				const app = {
-					app_id: row.app_id,
-				};
-				if (Utils.isSet(columns.name)) {
-					app.name = row.name;
-				}
-				if (Utils.isSet(columns.released)) {
-					app.released = !!row.released;
-				}
-				if (Utils.isSet(columns.removed)) {
-					app.removed = !!row.removed;
-				}
-				if (Utils.isSet(columns.steam_cloud)) {
-					app.steam_cloud = !!row.steam_cloud;
-				}
-				if (Utils.isSet(columns.trading_cards)) {
-					app.trading_cards = !!row.trading_cards;
-				}
-				if (Utils.isSet(columns.learning)) {
-					app.learning = Utils.isSet(row.learning) ? !!row.learning : null;
-				}
-				if (Utils.isSet(columns.multiplayer)) {
-					app.multiplayer = !!row.multiplayer;
-				}
-				if (Utils.isSet(columns.singleplayer)) {
-					app.singleplayer = !!row.singleplayer;
-				}
-				if (Utils.isSet(columns.linux)) {
-					app.linux = !!row.linux;
-				}
-				if (Utils.isSet(columns.mac)) {
-					app.mac = !!row.mac;
-				}
-				if (Utils.isSet(columns.windows)) {
-					app.windows = !!row.windows;
-				}
-				if (Utils.isSet(columns.achievements)) {
-					app.achievements = row.achievements;
-				}
-				if (Utils.isSet(columns.price)) {
-					app.price = row.price;
-				}
-				if (Utils.isSet(columns.metacritic)) {
-					app.metacritic = Utils.isSet(row.metacritic_score)
-						? {
-								score: row.metacritic_score,
-								url: `https://www.metacritic.com/game/pc/${row.metacritic_id}`,
-						  }
-						: null;
-				}
-				if (Utils.isSet(columns.rating)) {
-					app.rating = Utils.isSet(row.rating_percentage)
-						? {
-								percentage: row.rating_percentage,
-								count: row.rating_count,
-						  }
-						: null;
-				}
-				if (Utils.isSet(columns.release_date)) {
-					app.release_date = Utils.isSet(row.release_date)
-						? Utils.formatDate(parseInt(row.release_date) * 1e3)
-						: null;
-				}
-				if (Utils.isSet(columns.genres)) {
-					app.genres = row.genres ? row.genres.split(',') : [];
-				}
-				if (Utils.isSet(columns.tags)) {
-					app.tags = row.tags ? row.tags.split(',') : [];
-				}
-				if (Utils.isSet(columns.base)) {
-					app.base = Utils.isSet(row.base) ? row.base : null;
-				}
-				if (Utils.isSet(columns.dlcs)) {
-					app.dlcs = row.dlcs ? row.dlcs.split(',').map((dlcId) => parseInt(dlcId)) : [];
-				}
-				if (Utils.isSet(columns.subs)) {
-					app.subs = row.subs ? row.subs.split(',').map((subId) => parseInt(subId)) : [];
-				}
-				if (Utils.isSet(columns.bundles)) {
-					app.bundles = row.bundles
-						? row.bundles.split(',').map((bundleId) => parseInt(bundleId))
-						: [];
-				}
-				app.last_update = Utils.formatDate(parseInt(row.last_update) * 1e3, true);
-				apps.push(app);
+				app.queued_for_update = true;
+				to_queue.push(app.app_id);
+			} else {
+				app.queued_for_update = false;
 			}
+			apps.push(app);
+		}
+		if (to_queue.length > 0) {
+			await Pool.transaction(connection, async () => {
+				await Pool.query(
+					connection,
+					`
+						UPDATE games__app
+						SET queued_for_update = TRUE
+						WHERE ${to_queue.map((id) => `app_id = ${connection.escape(id)}`).join(' OR ')}
+					`
+				);
+			});
 		}
 		return apps;
 	}

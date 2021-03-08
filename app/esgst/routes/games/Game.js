@@ -87,27 +87,15 @@ class Game {
 		switch (params.type) {
 			case 'app': {
 				const result = (await App.get(connection, req, ids))[0];
-				if (result) {
-					return result;
-				}
-				await App.fetch(connection, params.id);
-				return (await App.get(connection, req, ids))[0];
+				return result;
 			}
 			case 'bundle': {
 				const result = (await Bundle.get(connection, req, ids))[0];
-				if (result) {
-					return result;
-				}
-				await Bundle.fetch(connection, params.id);
-				return (await Bundle.get(connection, req, ids))[0];
+				return result;
 			}
 			case 'sub': {
 				const result = (await Sub.get(connection, req, ids))[0];
-				if (result) {
-					return result;
-				}
-				await Sub.fetch(connection, params.id);
-				return (await Sub.get(connection, req, ids))[0];
+				return result;
 			}
 		}
 	}

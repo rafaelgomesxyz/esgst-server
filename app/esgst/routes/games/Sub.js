@@ -88,37 +88,57 @@ class Sub {
 		`
 		);
 		const subs = [];
+		const to_queue = [];
 		const now = Math.trunc(Date.now() / 1e3);
 		for (const row of rows) {
+			const sub = {
+				sub_id: row.sub_id,
+			};
+			if (Utils.isSet(columns.name)) {
+				sub.name = row.name;
+			}
+			if (Utils.isSet(columns.released)) {
+				sub.released = !!row.released;
+			}
+			if (Utils.isSet(columns.removed)) {
+				sub.removed = !!row.removed;
+			}
+			if (Utils.isSet(columns.price)) {
+				sub.price = row.price;
+			}
+			if (Utils.isSet(columns.release_date)) {
+				sub.release_date = Utils.isSet(row.release_date)
+					? Utils.formatDate(parseInt(row.release_date) * 1e3)
+					: null;
+			}
+			if (Utils.isSet(columns.apps)) {
+				sub.apps = row.apps ? row.apps.split(',').map((appId) => parseInt(appId)) : [];
+			}
+			sub.last_update = Utils.formatDate(parseInt(row.last_update) * 1e3, true);
 			const lastUpdate = Math.trunc(new Date(parseInt(row.last_update) * 1e3).getTime() / 1e3);
 			const differenceInSeconds = now - lastUpdate;
-			if (differenceInSeconds < 60 * 60 * 24 * 7) {
-				const sub = {
-					sub_id: row.sub_id,
-				};
-				if (Utils.isSet(columns.name)) {
-					sub.name = row.name;
-				}
-				if (Utils.isSet(columns.released)) {
-					sub.released = !!row.released;
-				}
-				if (Utils.isSet(columns.removed)) {
-					sub.removed = !!row.removed;
-				}
-				if (Utils.isSet(columns.price)) {
-					sub.price = row.price;
-				}
-				if (Utils.isSet(columns.release_date)) {
-					sub.release_date = Utils.isSet(row.release_date)
-						? Utils.formatDate(parseInt(row.release_date) * 1e3)
-						: null;
-				}
-				if (Utils.isSet(columns.apps)) {
-					sub.apps = row.apps ? row.apps.split(',').map((appId) => parseInt(appId)) : [];
-				}
-				sub.last_update = Utils.formatDate(parseInt(row.last_update) * 1e3, true);
-				subs.push(sub);
+			if (
+				differenceInSeconds > 60 * 60 * 24 * 7 ||
+				(!Utils.isSet(row.name) && !row.removed && differenceInSeconds > 60 * 60 * 24)
+			) {
+				sub.queued_for_update = true;
+				to_queue.push(sub.sub_id);
+			} else {
+				sub.queued_for_update = false;
 			}
+			subs.push(sub);
+		}
+		if (to_queue.length > 0) {
+			await Pool.transaction(connection, async () => {
+				await Pool.query(
+					connection,
+					`
+						UPDATE games__sub
+						SET queued_for_update = TRUE
+						WHERE ${to_queue.map((id) => `sub_id = ${connection.escape(id)}`).join(' OR ')}
+					`
+				);
+			});
 		}
 		return subs;
 	}

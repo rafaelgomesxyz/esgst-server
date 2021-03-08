@@ -85,29 +85,46 @@ class Bundle {
 		`
 		);
 		const bundles = [];
+		const to_queue = [];
 		const now = Math.trunc(Date.now() / 1e3);
 		for (const row of rows) {
+			const bundle = {
+				bundle_id: row.bundle_id,
+			};
+			if (Utils.isSet(columns.name)) {
+				bundle.name = row.name;
+			}
+			if (Utils.isSet(columns.removed)) {
+				bundle.removed = !!row.removed;
+			}
+			if (Utils.isSet(columns.apps)) {
+				bundle.apps = row.apps ? row.apps.split(',').map((appId) => parseInt(appId)) : [];
+			}
+			bundle.last_update = Utils.formatDate(parseInt(row.last_update) * 1e3, true);
 			const lastUpdate = Math.trunc(new Date(parseInt(row.last_update) * 1e3).getTime() / 1e3);
 			const differenceInSeconds = now - lastUpdate;
 			if (
-				differenceInSeconds < 60 * 60 * 24 * 7 &&
-				(Utils.isSet(row.name) || row.removed || differenceInSeconds < 60 * 60 * 24)
+				differenceInSeconds > 60 * 60 * 24 * 7 ||
+				(!Utils.isSet(row.name) && !row.removed && differenceInSeconds > 60 * 60 * 24)
 			) {
-				const bundle = {
-					bundle_id: row.bundle_id,
-				};
-				if (Utils.isSet(columns.name)) {
-					bundle.name = row.name;
-				}
-				if (Utils.isSet(columns.removed)) {
-					bundle.removed = !!row.removed;
-				}
-				if (Utils.isSet(columns.apps)) {
-					bundle.apps = row.apps ? row.apps.split(',').map((appId) => parseInt(appId)) : [];
-				}
-				bundle.last_update = Utils.formatDate(parseInt(row.last_update) * 1e3, true);
-				bundles.push(bundle);
+				bundle.queued_for_update = true;
+				to_queue.push(bundle.bundle_id);
+			} else {
+				bundle.queued_for_update = false;
 			}
+			bundles.push(bundle);
+		}
+		if (to_queue.length > 0) {
+			await Pool.transaction(connection, async () => {
+				await Pool.query(
+					connection,
+					`
+						UPDATE games__bundle
+						SET queued_for_update = TRUE
+						WHERE ${to_queue.map((id) => `bundle_id = ${connection.escape(id)}`).join(' OR ')}
+					`
+				);
+			});
 		}
 		return bundles;
 	}
