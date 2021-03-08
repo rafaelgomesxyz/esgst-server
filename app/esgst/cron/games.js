@@ -27,7 +27,7 @@ async function doGamesCronJob() {
  * @param {import('mysql').PoolConnection} connection
  */
 async function updateGames(connection) {
-  let err;
+	let err;
 
 	console.log('Initializing...');
 
@@ -95,27 +95,27 @@ async function updateGames(connection) {
 			}
 		}
 	} catch (_err) {
-    err = _err;
-  }
+		err = _err;
+	}
 
 	for (const [key, items] of Object.entries(updated)) {
-    if (items.length > 0) {
-      await Pool.transaction(connection, () => {
-        await Pool.query(
-          connection,
-          `
+		if (items.length > 0) {
+			await Pool.transaction(connection, async () => {
+				await Pool.query(
+					connection,
+					`
             UPDATE games__${key}
             SET queued_for_update = FALSE
             WHERE ${items.map((id) => `${key}_id = ${connection.escape(id)}`).join(' OR ')}
           `
-        );
-      });
-    }
+				);
+			});
+		}
 	}
 
-  if (err) {
-    throw err;
-  }
+	if (err) {
+		throw err;
+	}
 
 	console.log('Done!');
 }
