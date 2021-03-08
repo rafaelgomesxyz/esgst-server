@@ -44,10 +44,10 @@ passport.deserializeUser(async (steamId, done) => {
 
 const routes = Router();
 
-routes.get('/esgst/login', handleSession.bind(null, 'origin_steam', {}));
-routes.get('/esgst/login/return', handleSession.bind(null, 'steam', {}), Auth.login);
-routes.get('/esgst/me', handleSession.bind(null, 'normal', {}), Auth.getLoggedInUser);
-routes.get('/esgst/logout', handleSession.bind(null, 'origin', {}), Auth.logout);
+routes.get('/esgst/login', handleSession.bind(null, 'origin_steam', {}, []));
+routes.get('/esgst/login/return', handleSession.bind(null, 'steam', {}, [Auth.login]));
+routes.get('/esgst/me', handleSession.bind(null, 'normal', {}, [Auth.getLoggedInUser]));
+routes.get('/esgst/logout', handleSession.bind(null, 'origin', {}, [Auth.logout]));
 routes.get('/esgst/game/:type/:id', Game.get);
 routes.get('/esgst/games', Games.get);
 routes.get('/esgst/games/sgids', SgIds.get);
@@ -59,18 +59,16 @@ routes.get('/esgst/users/ust', Ust.get);
 routes.post('/esgst/users/ust', Ust.post);
 routes.get(
 	'/esgst/users/ust/ticket',
-	handleSession.bind(null, 'auth', { minRole: 2 }),
-	Ust.getTicket
+	handleSession.bind(null, 'auth', { minRole: 2 }, [Ust.getTicket])
 );
 routes.post(
 	'/esgst/users/ust/ticket',
-	handleSession.bind(null, 'auth', { minRole: 2 }),
-	Ust.postTicket
+	handleSession.bind(null, 'auth', { minRole: 2 }, [Ust.postTicket])
 );
 routes.get('/esgst/settings/stats', SettingsStats.get);
 routes.post('/esgst/settings/stats', SettingsStats.post);
 
-async function handleSession(type, options, req, res, next) {
+async function handleSession(type, options, nextMiddlewares, req, res, next) {
 	const connection = await Pool.getConnection();
 	const sessionStore = new MySqlStore({}, connection);
 	const sessionInitializers = [
@@ -110,8 +108,10 @@ async function handleSession(type, options, req, res, next) {
 			break;
 	}
 	middlewares.push(releaseConnection(connection));
+	middlewares.push(...nextMiddlewares);
 
-	return compose(middlewares);
+	const composedMiddleware = compose(middlewares);
+	composedMiddleware(req, res, next);
 }
 
 function saveOrigin(req, res, next) {
