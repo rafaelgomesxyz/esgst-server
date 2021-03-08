@@ -197,6 +197,7 @@ class Bundle {
 				);
 			}
 			await Pool.commit(connection);
+			return true;
 		} catch (err) {
 			await Pool.rollback(connection);
 			throw err;

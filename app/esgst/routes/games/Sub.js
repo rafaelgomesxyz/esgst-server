@@ -155,7 +155,7 @@ class Sub {
 		}
 		const apiData = apiResponse.json[subId].success ? apiResponse.json[subId].data : null;
 		if (!apiData) {
-			return;
+			return false;
 		}
 		const storeUrl = `https://store.steampowered.com/sub/${subId}?cc=us&l=en`;
 		const storeConfig = {
@@ -214,6 +214,7 @@ class Sub {
 				);
 			}
 			await Pool.commit(connection);
+			return true;
 		} catch (err) {
 			await Pool.rollback(connection);
 			throw err;

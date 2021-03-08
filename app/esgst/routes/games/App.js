@@ -312,7 +312,7 @@ class App {
 		}
 		const apiData = apiResponse.json[appId].success ? apiResponse.json[appId].data : null;
 		if (!apiData || (apiData.type !== 'game' && apiData.type !== 'dlc')) {
-			return;
+			return false;
 		}
 		const storeUrl = `https://store.steampowered.com/app/${appId}?cc=us&l=en`;
 		const storeConfig = {
@@ -510,6 +510,7 @@ class App {
 				);
 			}
 			await Pool.commit(connection);
+			return true;
 		} catch (err) {
 			await Pool.rollback(connection);
 			throw err;
