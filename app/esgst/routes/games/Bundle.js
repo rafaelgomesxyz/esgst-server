@@ -58,7 +58,12 @@ class Bundle {
 		const rows = await Pool.query(
 			connection,
 			`
-			SELECT ${['g_b.bundle_id', 'g_b.last_update', ...Object.values(columns)].join(', ')}
+			SELECT ${[
+				'g_b.bundle_id',
+				'g_b.last_update',
+				'g_b.queued_for_update',
+				...Object.values(columns),
+			].join(', ')}
 			FROM games__bundle AS g_b
 			${
 				Utils.isSet(columns.name)
@@ -85,6 +90,7 @@ class Bundle {
 		`
 		);
 		const bundles = [];
+		const found = [];
 		const to_queue = [];
 		const now = Math.trunc(Date.now() / 1e3);
 		for (const row of rows) {
@@ -101,27 +107,31 @@ class Bundle {
 				bundle.apps = row.apps ? row.apps.split(',').map((appId) => parseInt(appId)) : [];
 			}
 			bundle.last_update = Utils.formatDate(parseInt(row.last_update) * 1e3, true);
-			const lastUpdate = Math.trunc(new Date(parseInt(row.last_update) * 1e3).getTime() / 1e3);
-			const differenceInSeconds = now - lastUpdate;
-			if (
-				differenceInSeconds > 60 * 60 * 24 * 7 ||
-				(!Utils.isSet(row.name) && !row.removed && differenceInSeconds > 60 * 60 * 24)
-			) {
-				bundle.queued_for_update = true;
-				to_queue.push(bundle.bundle_id);
-			} else {
-				bundle.queued_for_update = false;
+			bundle.queued_for_update = !!row.queued_for_update;
+			if (!bundle.queued_for_update) {
+				const lastUpdate = Math.trunc(new Date(parseInt(row.last_update) * 1e3).getTime() / 1e3);
+				const differenceInSeconds = now - lastUpdate;
+				if (
+					differenceInSeconds > 60 * 60 * 24 * 7 ||
+					(!Utils.isSet(row.name) && !row.removed && differenceInSeconds > 60 * 60 * 24)
+				) {
+					bundle.queued_for_update = true;
+					to_queue.push(bundle.bundle_id);
+				}
 			}
 			bundles.push(bundle);
+			found.push(bundle.bundle_id);
 		}
+		const notFound = ids.filter((id) => !found.includes(id));
+		to_queue.push(...notFound);
 		if (to_queue.length > 0) {
 			await Pool.transaction(connection, async () => {
 				await Pool.query(
 					connection,
 					`
-						UPDATE games__bundle
-						SET queued_for_update = TRUE
-						WHERE ${to_queue.map((id) => `bundle_id = ${connection.escape(id)}`).join(' OR ')}
+						INSERT INTO games__bundle (bundle_id, queued_for_update)
+						VALUES ${to_queue.map((id) => `(${connection.escape(id)}, TRUE)`).join(', ')}
+						ON DUPLICATE KEY UPDATE queued_for_update = VALUES(queued_for_update)
 					`
 				);
 			});
@@ -156,6 +166,7 @@ class Bundle {
 			bundle_id: bundleId,
 			removed: removed,
 			last_update: Math.trunc(Date.now() / 1e3),
+			queued_for_update: false,
 		};
 		const apps = [];
 		if (isStoreResponseOk && !removed) {
@@ -171,33 +182,32 @@ class Bundle {
 			await Pool.query(
 				connection,
 				`
-				INSERT INTO games__bundle (${columns.join(', ')})
-				VALUES (${values.map((value) => connection.escape(value)).join(', ')})
-				ON DUPLICATE KEY UPDATE ${columns.map((column) => `${column} = VALUES(${column})`).join(', ')}
-			`
+					INSERT INTO games__bundle (${columns.join(', ')})
+					VALUES (${values.map((value) => connection.escape(value)).join(', ')})
+					ON DUPLICATE KEY UPDATE ${columns.map((column) => `${column} = VALUES(${column})`).join(', ')}
+				`
 			);
 			if (bundleName) {
 				await Pool.query(
 					connection,
 					`
-					INSERT IGNORE INTO games__bundle_name (bundle_id, name)
-					VALUES (${connection.escape(bundleId)}, ${connection.escape(bundleName)})
-				`
+						INSERT IGNORE INTO games__bundle_name (bundle_id, name)
+						VALUES (${connection.escape(bundleId)}, ${connection.escape(bundleName)})
+					`
 				);
 			}
 			if (apps.length > 0) {
 				await Pool.query(
 					connection,
 					`
-					INSERT IGNORE INTO games__bundle_app (bundle_id, app_id)
-					VALUES ${apps
-						.map((appId) => `(${connection.escape(bundleId)}, ${connection.escape(appId)})`)
-						.join(', ')}
-				`
+						INSERT IGNORE INTO games__bundle_app (bundle_id, app_id)
+						VALUES ${apps
+							.map((appId) => `(${connection.escape(bundleId)}, ${connection.escape(appId)})`)
+							.join(', ')}
+					`
 				);
 			}
 			await Pool.commit(connection);
-			return true;
 		} catch (err) {
 			await Pool.rollback(connection);
 			throw err;

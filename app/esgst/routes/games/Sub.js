@@ -61,7 +61,9 @@ class Sub {
 		const rows = await Pool.query(
 			connection,
 			`
-			SELECT ${['g_s.sub_id', 'g_s.last_update', ...Object.values(columns)].join(', ')}
+			SELECT ${['g_s.sub_id', 'g_s.last_update', 'g_s.queued_for_update', ...Object.values(columns)].join(
+				', '
+			)}
 			FROM games__sub AS g_s
 			${
 				Utils.isSet(columns.name)
@@ -88,6 +90,7 @@ class Sub {
 		`
 		);
 		const subs = [];
+		const found = [];
 		const to_queue = [];
 		const now = Math.trunc(Date.now() / 1e3);
 		for (const row of rows) {
@@ -115,27 +118,31 @@ class Sub {
 				sub.apps = row.apps ? row.apps.split(',').map((appId) => parseInt(appId)) : [];
 			}
 			sub.last_update = Utils.formatDate(parseInt(row.last_update) * 1e3, true);
-			const lastUpdate = Math.trunc(new Date(parseInt(row.last_update) * 1e3).getTime() / 1e3);
-			const differenceInSeconds = now - lastUpdate;
-			if (
-				differenceInSeconds > 60 * 60 * 24 * 7 ||
-				(!Utils.isSet(row.name) && !row.removed && differenceInSeconds > 60 * 60 * 24)
-			) {
-				sub.queued_for_update = true;
-				to_queue.push(sub.sub_id);
-			} else {
-				sub.queued_for_update = false;
+			sub.queued_for_update = !!row.queued_for_update;
+			if (!sub.queued_for_update) {
+				const lastUpdate = Math.trunc(new Date(parseInt(row.last_update) * 1e3).getTime() / 1e3);
+				const differenceInSeconds = now - lastUpdate;
+				if (
+					differenceInSeconds > 60 * 60 * 24 * 7 ||
+					(!Utils.isSet(row.name) && !row.removed && differenceInSeconds > 60 * 60 * 24)
+				) {
+					sub.queued_for_update = true;
+					to_queue.push(sub.sub_id);
+				}
 			}
 			subs.push(sub);
+			found.push(sub.sub_id);
 		}
+		const notFound = ids.filter((id) => !found.includes(id));
+		to_queue.push(...notFound);
 		if (to_queue.length > 0) {
 			await Pool.transaction(connection, async () => {
 				await Pool.query(
 					connection,
 					`
-						UPDATE games__sub
-						SET queued_for_update = TRUE
-						WHERE ${to_queue.map((id) => `sub_id = ${connection.escape(id)}`).join(' OR ')}
+						INSERT INTO games__sub (sub_id, queued_for_update)
+						VALUES ${to_queue.map((id) => `(${connection.escape(id)}, TRUE)`).join(', ')}
+						ON DUPLICATE KEY UPDATE queued_for_update = VALUES(queued_for_update)
 					`
 				);
 			});
@@ -153,71 +160,89 @@ class Sub {
 		if (!apiResponse || !apiResponse.json || !apiResponse.json[subId]) {
 			throw new CustomError(CustomError.COMMON_MESSAGES.steam, 500);
 		}
-		const apiData = apiResponse.json[subId].success ? apiResponse.json[subId].data : null;
-		if (!apiData) {
-			return false;
-		}
-		const storeUrl = `https://store.steampowered.com/sub/${subId}?cc=us&l=en`;
-		const storeConfig = {
-			headers: {
-				Cookie: 'birthtime=0; mature_content=1;',
-			},
-		};
-		const storeResponse = await Request.get(storeUrl, storeConfig);
-		if (!storeResponse.html) {
-			throw new CustomError(CustomError.COMMON_MESSAGES.steam, 500);
-		}
-		const releaseDate = apiData.release_date;
-		const sub = {
-			sub_id: subId,
-			released: !releaseDate.coming_soon,
-			removed: !storeResponse.url.match(new RegExp(`store\.steampowered\.com.*?\/sub\/${subId}`)),
-			price: parseInt((apiData.price && apiData.price.initial) || 0),
-			release_date: null,
-			last_update: Math.trunc(Date.now() / 1e3),
-		};
-		if (releaseDate.date) {
-			const timestamp = new Date(`${releaseDate.date.replace(/st|nd|rd|th/, '')} UTC`).getTime();
-			if (!Number.isNaN(timestamp)) {
-				sub['release_date'] = Math.trunc(timestamp / 1e3);
+		if (apiResponse.json[subId].success) {
+			const apiData = apiResponse.json[subId].data;
+			if (!apiData) {
+				return;
 			}
-		}
-		const apps = apiData.apps ? apiData.apps.map((item) => parseInt(item.id)) : [];
-		await Pool.beginTransaction(connection);
-		try {
-			const columns = Object.keys(sub);
-			const values = Object.values(sub);
-			await Pool.query(
-				connection,
-				`
-				INSERT INTO games__sub (${columns.join(', ')})
-				VALUES (${values.map((value) => connection.escape(value)).join(', ')})
-				ON DUPLICATE KEY UPDATE ${columns.map((column) => `${column} = VALUES(${column})`).join(', ')}
-			`
-			);
-			await Pool.query(
-				connection,
-				`
-				INSERT IGNORE INTO games__sub_name (sub_id, name)
-				VALUES (${connection.escape(subId)}, ${connection.escape(apiData.name)})
-			`
-			);
-			if (apps.length > 0) {
+			const storeUrl = `https://store.steampowered.com/sub/${subId}?cc=us&l=en`;
+			const storeConfig = {
+				headers: {
+					Cookie: 'birthtime=0; mature_content=1;',
+				},
+			};
+			const storeResponse = await Request.get(storeUrl, storeConfig);
+			if (!storeResponse.html) {
+				throw new CustomError(CustomError.COMMON_MESSAGES.steam, 500);
+			}
+			const releaseDate = apiData.release_date;
+			const sub = {
+				sub_id: subId,
+				released: !releaseDate.coming_soon,
+				removed: !storeResponse.url.match(new RegExp(`store\.steampowered\.com.*?\/sub\/${subId}`)),
+				price: parseInt((apiData.price && apiData.price.initial) || 0),
+				release_date: null,
+				last_update: Math.trunc(Date.now() / 1e3),
+				queued_for_update: false,
+			};
+			if (releaseDate.date) {
+				const timestamp = new Date(`${releaseDate.date.replace(/st|nd|rd|th/, '')} UTC`).getTime();
+				if (!Number.isNaN(timestamp)) {
+					sub['release_date'] = Math.trunc(timestamp / 1e3);
+				}
+			}
+			const apps = apiData.apps ? apiData.apps.map((item) => parseInt(item.id)) : [];
+			await Pool.beginTransaction(connection);
+			try {
+				const columns = Object.keys(sub);
+				const values = Object.values(sub);
 				await Pool.query(
 					connection,
 					`
-					INSERT IGNORE INTO games__sub_app (sub_id, app_id)
-					VALUES ${apps
-						.map((appId) => `(${connection.escape(subId)}, ${connection.escape(appId)})`)
-						.join(', ')}
-				`
+						INSERT INTO games__sub (${columns.join(', ')})
+						VALUES (${values.map((value) => connection.escape(value)).join(', ')})
+						ON DUPLICATE KEY UPDATE ${columns.map((column) => `${column} = VALUES(${column})`).join(', ')}
+					`
 				);
+				await Pool.query(
+					connection,
+					`
+						INSERT IGNORE INTO games__sub_name (sub_id, name)
+						VALUES (${connection.escape(subId)}, ${connection.escape(apiData.name)})
+					`
+				);
+				if (apps.length > 0) {
+					await Pool.query(
+						connection,
+						`
+							INSERT IGNORE INTO games__sub_app (sub_id, app_id)
+							VALUES ${apps
+								.map((appId) => `(${connection.escape(subId)}, ${connection.escape(appId)})`)
+								.join(', ')}
+						`
+					);
+				}
+				await Pool.commit(connection);
+			} catch (err) {
+				await Pool.rollback(connection);
+				throw err;
 			}
-			await Pool.commit(connection);
-			return true;
-		} catch (err) {
-			await Pool.rollback(connection);
-			throw err;
+		} else {
+			await Pool.beginTransaction(connection);
+			try {
+				await Pool.query(
+					connection,
+					`
+						INSERT INTO games__sub (sub_id, removed, last_update, queued_for_update)
+						VALUES (${subId}, TRUE, ${connection.escape(Math.trunc(Date.now() / 1e3))}, FALSE)
+						ON DUPLICATE KEY UPDATE removed = VALUES(removed), last_update = VALUES(last_update), queued_for_update = VALUES(queued_for_update)
+					`
+				);
+				await Pool.commit(connection);
+			} catch (err) {
+				await Pool.rollback(connection);
+				throw err;
+			}
 		}
 	}
 }

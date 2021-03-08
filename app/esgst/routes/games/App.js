@@ -98,7 +98,9 @@ class App {
 		const rows = await Pool.query(
 			connection,
 			`
-			SELECT ${['g_a.app_id', 'g_a.last_update', ...Object.values(columns)].join(', ')}
+			SELECT ${['g_a.app_id', 'g_a.last_update', 'g_a.queued_for_update', ...Object.values(columns)].join(
+				', '
+			)}
 			FROM games__app AS g_a
 			${
 				Utils.isSet(columns.name)
@@ -185,6 +187,7 @@ class App {
 		`
 		);
 		const apps = [];
+		const found = [];
 		const to_queue = [];
 		const now = Math.trunc(Date.now() / 1e3);
 		for (const row of rows) {
@@ -272,27 +275,31 @@ class App {
 					: [];
 			}
 			app.last_update = Utils.formatDate(parseInt(row.last_update) * 1e3, true);
-			const lastUpdate = Math.trunc(new Date(parseInt(row.last_update) * 1e3).getTime() / 1e3);
-			const differenceInSeconds = now - lastUpdate;
-			if (
-				differenceInSeconds > 60 * 60 * 24 * 7 ||
-				(!Utils.isSet(row.learning) && !row.removed && differenceInSeconds > 60 * 60 * 24)
-			) {
-				app.queued_for_update = true;
-				to_queue.push(app.app_id);
-			} else {
-				app.queued_for_update = false;
+			app.queued_for_update = !!row.queued_for_update;
+			if (!app.queued_for_update) {
+				const lastUpdate = Math.trunc(new Date(parseInt(row.last_update) * 1e3).getTime() / 1e3);
+				const differenceInSeconds = now - lastUpdate;
+				if (
+					differenceInSeconds > 60 * 60 * 24 * 7 ||
+					(!Utils.isSet(row.learning) && !row.removed && differenceInSeconds > 60 * 60 * 24)
+				) {
+					app.queued_for_update = true;
+					to_queue.push(app.app_id);
+				}
 			}
 			apps.push(app);
+			found.push(app.app_id);
 		}
+		const notFound = ids.filter((id) => !found.includes(id));
+		to_queue.push(...notFound);
 		if (to_queue.length > 0) {
 			await Pool.transaction(connection, async () => {
 				await Pool.query(
 					connection,
 					`
-						UPDATE games__app
-						SET queued_for_update = TRUE
-						WHERE ${to_queue.map((id) => `app_id = ${connection.escape(id)}`).join(' OR ')}
+						INSERT INTO games__app (app_id, queued_for_update)
+						VALUES ${to_queue.map((id) => `(${connection.escape(id)}, TRUE)`).join(', ')}
+						ON DUPLICATE KEY UPDATE queued_for_update = VALUES(queued_for_update)
 					`
 				);
 			});
@@ -310,210 +317,231 @@ class App {
 		if (!apiResponse || !apiResponse.json || !apiResponse.json[appId]) {
 			throw new CustomError(CustomError.COMMON_MESSAGES.steam, 500);
 		}
-		const apiData = apiResponse.json[appId].success ? apiResponse.json[appId].data : null;
-		if (!apiData || (apiData.type !== 'game' && apiData.type !== 'dlc')) {
-			return false;
-		}
-		const storeUrl = `https://store.steampowered.com/app/${appId}?cc=us&l=en`;
-		const storeConfig = {
-			headers: {
-				Cookie: 'birthtime=0; mature_content=1;',
-			},
-		};
-		const storeResponse = await Request.get(storeUrl, storeConfig);
-		if (!storeResponse.html) {
-			throw new CustomError(CustomError.COMMON_MESSAGES.steam, 500);
-		}
-		const isStoreResponseOk = !!storeResponse.html.querySelector('.apphub_AppName');
-		const releaseDate = apiData.release_date;
-		const removed = !storeResponse.url.match(
-			new RegExp(`store\.steampowered\.com.*?\/app\/${appId}`)
-		);
-		const categories = apiData.categories
-			? apiData.categories.map((category) => category.description.toLowerCase())
-			: [];
-		const platforms = apiData.platforms;
-		const metacritic = apiData.metacritic;
-		let rating = null;
-		if (isStoreResponseOk && !removed) {
-			const elements = storeResponse.html.querySelectorAll('.user_reviews_summary_row');
-			const numElements = elements.length;
-			if (numElements > 0) {
-				const text = elements[numElements - 1].dataset.tooltipHtml.replace(/[,.]/, '');
-				rating = text.match(/(\d+)%.+?(\d+)/);
+		if (apiResponse.json[appId].success) {
+			const apiData = apiResponse.json[appId].data;
+			if (!apiData || (apiData.type !== 'game' && apiData.type !== 'dlc')) {
+				return;
 			}
-		}
-		const app = {
-			app_id: appId,
-			released: !releaseDate.coming_soon,
-			removed: removed,
-			steam_cloud: categories.includes('steam cloud'),
-			trading_cards: categories.includes('steam trading cards'),
-			learning: isStoreResponseOk ? !!storeResponse.html.querySelector('.learning_about') : null,
-			multiplayer:
-				[
-					'multi-player',
-					'online multi-player',
-					'co-op',
-					'local co-op',
-					'online co-op',
-					'shared/split screen',
-				].filter((category) => categories.includes(category)).length > 0,
-			singleplayer: categories.includes('single-player'),
-			linux: platforms.linux,
-			mac: platforms.mac,
-			windows: platforms.windows,
-			achievements: parseInt((apiData.achievements && apiData.achievements.total) || 0),
-			price: parseInt((apiData.price_overview && apiData.price_overview.initial) || 0),
-			metacritic_score: metacritic ? parseInt(metacritic.score) : null,
-			metacritic_id: metacritic
-				? metacritic.url.replace(/https:\/\/www\.metacritic\.com\/game\/pc\/|\?.+/, '')
-				: null,
-			rating_percentage: rating ? parseInt(rating[1]) : null,
-			rating_count: rating ? parseInt(rating[2]) : null,
-			release_date: null,
-			last_update: Math.trunc(Date.now() / 1e3),
-		};
-		if (releaseDate.date) {
-			const timestamp = new Date(`${releaseDate.date.replace(/st|nd|rd|th/, '')} UTC`).getTime();
-			if (!Number.isNaN(timestamp)) {
-				app['release_date'] = Math.trunc(timestamp / 1e3);
+			const storeUrl = `https://store.steampowered.com/app/${appId}?cc=us&l=en`;
+			const storeConfig = {
+				headers: {
+					Cookie: 'birthtime=0; mature_content=1;',
+				},
+			};
+			const storeResponse = await Request.get(storeUrl, storeConfig);
+			if (!storeResponse.html) {
+				throw new CustomError(CustomError.COMMON_MESSAGES.steam, 500);
 			}
-		}
-		const genres = [];
-		if (apiData.genres) {
-			for (const genre of apiData.genres) {
-				genres.push({
-					id: parseInt(genre.id),
-					name: genre.description.trim(),
-				});
+			const isStoreResponseOk = !!storeResponse.html.querySelector('.apphub_AppName');
+			const releaseDate = apiData.release_date;
+			const removed = !storeResponse.url.match(
+				new RegExp(`store\.steampowered\.com.*?\/app\/${appId}`)
+			);
+			const categories = apiData.categories
+				? apiData.categories.map((category) => category.description.toLowerCase())
+				: [];
+			const platforms = apiData.platforms;
+			const metacritic = apiData.metacritic;
+			let rating = null;
+			if (isStoreResponseOk && !removed) {
+				const elements = storeResponse.html.querySelectorAll('.user_reviews_summary_row');
+				const numElements = elements.length;
+				if (numElements > 0) {
+					const text = elements[numElements - 1].dataset.tooltipHtml.replace(/[,.]/, '');
+					rating = text.match(/(\d+)%.+?(\d+)/);
+				}
 			}
-		}
-		const tags = [];
-		if (isStoreResponseOk && !removed) {
-			const matches = storeResponse.text.match(/InitAppTagModal[\S\s]*?(\[[\S\s]*?]),/);
-			if (matches) {
-				const elements = JSON.parse(matches[1]);
-				for (const element of elements) {
-					tags.push({
-						id: parseInt(element.tagid),
-						name: element.name,
+			const app = {
+				app_id: appId,
+				released: !releaseDate.coming_soon,
+				removed: removed,
+				steam_cloud: categories.includes('steam cloud'),
+				trading_cards: categories.includes('steam trading cards'),
+				learning: isStoreResponseOk ? !!storeResponse.html.querySelector('.learning_about') : null,
+				multiplayer:
+					[
+						'multi-player',
+						'online multi-player',
+						'co-op',
+						'local co-op',
+						'online co-op',
+						'shared/split screen',
+					].filter((category) => categories.includes(category)).length > 0,
+				singleplayer: categories.includes('single-player'),
+				linux: platforms.linux,
+				mac: platforms.mac,
+				windows: platforms.windows,
+				achievements: parseInt((apiData.achievements && apiData.achievements.total) || 0),
+				price: parseInt((apiData.price_overview && apiData.price_overview.initial) || 0),
+				metacritic_score: metacritic ? parseInt(metacritic.score) : null,
+				metacritic_id: metacritic
+					? metacritic.url.replace(/https:\/\/www\.metacritic\.com\/game\/pc\/|\?.+/, '')
+					: null,
+				rating_percentage: rating ? parseInt(rating[1]) : null,
+				rating_count: rating ? parseInt(rating[2]) : null,
+				release_date: null,
+				last_update: Math.trunc(Date.now() / 1e3),
+				queued_for_update: false,
+			};
+			if (releaseDate.date) {
+				const timestamp = new Date(`${releaseDate.date.replace(/st|nd|rd|th/, '')} UTC`).getTime();
+				if (!Number.isNaN(timestamp)) {
+					app['release_date'] = Math.trunc(timestamp / 1e3);
+				}
+			}
+			const genres = [];
+			if (apiData.genres) {
+				for (const genre of apiData.genres) {
+					genres.push({
+						id: parseInt(genre.id),
+						name: genre.description.trim(),
 					});
 				}
 			}
-		}
-		const base =
-			parseInt((apiData.type === 'dlc' && apiData.fullgame && apiData.fullgame.appid) || 0) || null;
-		const dlcs = apiData.dlc ? apiData.dlc.map((item) => parseInt(item)) : [];
-		const subs = apiData.packages ? apiData.packages.map((item) => parseInt(item)) : [];
-		const bundles = [];
-		if (isStoreResponseOk && !removed) {
-			const elements = storeResponse.html.querySelectorAll('[data-ds-bundleid]');
-			for (const element of elements) {
-				bundles.push(parseInt(element.dataset.dsBundleid));
-			}
-		}
-		await Pool.beginTransaction(connection);
-		try {
-			const columns = Object.keys(app);
-			const values = Object.values(app);
-			await Pool.query(
-				connection,
-				`
-				INSERT INTO games__app (${columns.join(', ')})
-				VALUES (${values.map((value) => connection.escape(value)).join(', ')})
-				ON DUPLICATE KEY UPDATE ${columns.map((column) => `${column} = VALUES(${column})`).join(', ')}
-			`
-			);
-			await Pool.query(
-				connection,
-				`
-				INSERT IGNORE INTO games__app_name (app_id, name)
-				VALUES (${connection.escape(appId)}, ${connection.escape(apiData.name)})
-			`
-			);
-			if (genres.length > 0) {
-				await Pool.query(
-					connection,
-					`
-					INSERT IGNORE INTO games__genre (genre_id, name)
-					VALUES ${genres
-						.map((genre) => `(${connection.escape(genre.id)}, ${connection.escape(genre.name)})`)
-						.join(', ')}
-				`
-				);
-				await Pool.query(
-					connection,
-					`
-					INSERT IGNORE INTO games__app_genre (app_id, genre_id)
-					VALUES ${genres
-						.map((genre) => `(${connection.escape(appId)}, ${connection.escape(genre.id)})`)
-						.join(', ')}
-				`
-				);
-			}
-			if (tags.length > 0) {
-				await Pool.query(
-					connection,
-					`
-					INSERT IGNORE INTO games__tag (tag_id, name)
-					VALUES ${tags
-						.map((tag) => `(${connection.escape(tag.id)}, ${connection.escape(tag.name)})`)
-						.join(', ')}
-				`
-				);
-				await Pool.query(
-					connection,
-					`
-					INSERT IGNORE INTO games__app_tag (app_id, tag_id)
-					VALUES ${tags
-						.map((tag) => `(${connection.escape(appId)}, ${connection.escape(tag.id)})`)
-						.join(', ')}
-				`
-				);
-			}
-			if (base || dlcs.length > 0) {
-				await Pool.query(
-					connection,
-					`
-					INSERT IGNORE INTO games__dlc (dlc_id, app_id)
-					VALUES ${
-						base
-							? `(${connection.escape(appId)}, ${connection.escape(base)})`
-							: dlcs
-									.map((dlcId) => `(${connection.escape(dlcId)}, ${connection.escape(appId)})`)
-									.join(', ')
+			const tags = [];
+			if (isStoreResponseOk && !removed) {
+				const matches = storeResponse.text.match(/InitAppTagModal[\S\s]*?(\[[\S\s]*?]),/);
+				if (matches) {
+					const elements = JSON.parse(matches[1]);
+					for (const element of elements) {
+						tags.push({
+							id: parseInt(element.tagid),
+							name: element.name,
+						});
 					}
-				`
-				);
+				}
 			}
-			if (subs.length > 0) {
+			const base =
+				parseInt((apiData.type === 'dlc' && apiData.fullgame && apiData.fullgame.appid) || 0) ||
+				null;
+			const dlcs = apiData.dlc ? apiData.dlc.map((item) => parseInt(item)) : [];
+			const subs = apiData.packages ? apiData.packages.map((item) => parseInt(item)) : [];
+			const bundles = [];
+			if (isStoreResponseOk && !removed) {
+				const elements = storeResponse.html.querySelectorAll('[data-ds-bundleid]');
+				for (const element of elements) {
+					bundles.push(parseInt(element.dataset.dsBundleid));
+				}
+			}
+			await Pool.beginTransaction(connection);
+			try {
+				const columns = Object.keys(app);
+				const values = Object.values(app);
 				await Pool.query(
 					connection,
 					`
-					INSERT IGNORE INTO games__sub_app (sub_id, app_id)
-					VALUES ${subs
-						.map((subId) => `(${connection.escape(subId)}, ${connection.escape(appId)})`)
-						.join(', ')}
-				`
+						INSERT INTO games__app (${columns.join(', ')})
+						VALUES (${values.map((value) => connection.escape(value)).join(', ')})
+						ON DUPLICATE KEY UPDATE ${columns.map((column) => `${column} = VALUES(${column})`).join(', ')}
+					`
 				);
-			}
-			if (bundles.length > 0) {
 				await Pool.query(
 					connection,
 					`
-					INSERT IGNORE INTO games__bundle_app (bundle_id, app_id)
-					VALUES ${bundles
-						.map((bundleId) => `(${connection.escape(bundleId)}, ${connection.escape(appId)})`)
-						.join(', ')}
-				`
+						INSERT IGNORE INTO games__app_name (app_id, name)
+						VALUES (${connection.escape(appId)}, ${connection.escape(apiData.name)})
+					`
 				);
+				if (genres.length > 0) {
+					await Pool.query(
+						connection,
+						`
+							INSERT IGNORE INTO games__genre (genre_id, name)
+							VALUES ${genres
+								.map(
+									(genre) => `(${connection.escape(genre.id)}, ${connection.escape(genre.name)})`
+								)
+								.join(', ')}
+						`
+					);
+					await Pool.query(
+						connection,
+						`
+							INSERT IGNORE INTO games__app_genre (app_id, genre_id)
+							VALUES ${genres
+								.map((genre) => `(${connection.escape(appId)}, ${connection.escape(genre.id)})`)
+								.join(', ')}
+						`
+					);
+				}
+				if (tags.length > 0) {
+					await Pool.query(
+						connection,
+						`
+							INSERT IGNORE INTO games__tag (tag_id, name)
+							VALUES ${tags
+								.map((tag) => `(${connection.escape(tag.id)}, ${connection.escape(tag.name)})`)
+								.join(', ')}
+						`
+					);
+					await Pool.query(
+						connection,
+						`
+							INSERT IGNORE INTO games__app_tag (app_id, tag_id)
+							VALUES ${tags
+								.map((tag) => `(${connection.escape(appId)}, ${connection.escape(tag.id)})`)
+								.join(', ')}
+						`
+					);
+				}
+				if (base || dlcs.length > 0) {
+					await Pool.query(
+						connection,
+						`
+							INSERT IGNORE INTO games__dlc (dlc_id, app_id)
+							VALUES ${
+								base
+									? `(${connection.escape(appId)}, ${connection.escape(base)})`
+									: dlcs
+											.map((dlcId) => `(${connection.escape(dlcId)}, ${connection.escape(appId)})`)
+											.join(', ')
+							}
+						`
+					);
+				}
+				if (subs.length > 0) {
+					await Pool.query(
+						connection,
+						`
+							INSERT IGNORE INTO games__sub_app (sub_id, app_id)
+							VALUES ${subs
+								.map((subId) => `(${connection.escape(subId)}, ${connection.escape(appId)})`)
+								.join(', ')}
+						`
+					);
+				}
+				if (bundles.length > 0) {
+					await Pool.query(
+						connection,
+						`
+							INSERT IGNORE INTO games__bundle_app (bundle_id, app_id)
+							VALUES ${bundles
+								.map((bundleId) => `(${connection.escape(bundleId)}, ${connection.escape(appId)})`)
+								.join(', ')}
+						`
+					);
+				}
+				await Pool.commit(connection);
+			} catch (err) {
+				await Pool.rollback(connection);
+				throw err;
 			}
-			await Pool.commit(connection);
-			return true;
-		} catch (err) {
-			await Pool.rollback(connection);
-			throw err;
+		} else {
+			await Pool.beginTransaction(connection);
+			try {
+				await Pool.query(
+					connection,
+					`
+						INSERT INTO games__app (app_id, removed, last_update, queued_for_update)
+						VALUES (${appId}, TRUE, ${connection.escape(Math.trunc(Date.now() / 1e3))}, FALSE)
+						ON DUPLICATE KEY UPDATE removed = VALUES(removed), last_update = VALUES(last_update), queued_for_update = VALUES(queued_for_update)
+					`
+				);
+				await Pool.commit(connection);
+			} catch (err) {
+				await Pool.rollback(connection);
+				throw err;
+			}
 		}
 	}
 }
