@@ -2,6 +2,7 @@ const CustomError = require('../../class/CustomError');
 const Pool = require('../../class/Connection');
 const Request = require('../../class/Request');
 const Utils = require('../../class/Utils');
+const App = require('./App');
 
 /**
  * @api {SCHEMA} Sub Sub
@@ -122,10 +123,7 @@ class Sub {
 			if (!sub.queued_for_update) {
 				const lastUpdate = Math.trunc(new Date(parseInt(row.last_update) * 1e3).getTime() / 1e3);
 				const differenceInSeconds = now - lastUpdate;
-				if (
-					differenceInSeconds > 60 * 60 * 24 * 7 ||
-					(!Utils.isSet(row.name) && !row.removed && differenceInSeconds > 60 * 60 * 24)
-				) {
+				if (differenceInSeconds > 60 * 60 * 24 * 6) {
 					sub.queued_for_update = true;
 					to_queue.push(sub.sub_id);
 				}
@@ -163,6 +161,21 @@ class Sub {
 		if (apiResponse.json[subId].success) {
 			const apiData = apiResponse.json[subId].data;
 			if (!apiData) {
+				await Pool.beginTransaction(connection);
+				try {
+					await Pool.query(
+						connection,
+						`
+							INSERT INTO games__sub (sub_id, removed, last_update, queued_for_update)
+							VALUES (${subId}, TRUE, ${connection.escape(Math.trunc(Date.now() / 1e3))}, FALSE)
+							ON DUPLICATE KEY UPDATE removed = VALUES(removed), last_update = VALUES(last_update), queued_for_update = VALUES(queued_for_update)
+						`
+					);
+					await Pool.commit(connection);
+				} catch (err) {
+					await Pool.rollback(connection);
+					throw err;
+				}
 				return;
 			}
 			const storeUrl = `https://store.steampowered.com/sub/${subId}?cc=us&l=en`;
@@ -223,6 +236,13 @@ class Sub {
 					);
 				}
 				await Pool.commit(connection);
+				if (apps.length > 0) {
+					for (const appId of apps) {
+						console.log(`Updating sub app ${appId}...`);
+						await Utils.timeout(1);
+						await App.fetch(connection, appId);
+					}
+				}
 			} catch (err) {
 				await Pool.rollback(connection);
 				throw err;

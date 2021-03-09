@@ -280,7 +280,7 @@ class App {
 				const lastUpdate = Math.trunc(new Date(parseInt(row.last_update) * 1e3).getTime() / 1e3);
 				const differenceInSeconds = now - lastUpdate;
 				if (
-					differenceInSeconds > 60 * 60 * 24 * 7 ||
+					differenceInSeconds > 60 * 60 * 24 * 6 ||
 					(!Utils.isSet(row.learning) && !row.removed && differenceInSeconds > 60 * 60 * 24)
 				) {
 					app.queued_for_update = true;
@@ -320,6 +320,21 @@ class App {
 		if (apiResponse.json[appId].success) {
 			const apiData = apiResponse.json[appId].data;
 			if (!apiData || (apiData.type !== 'game' && apiData.type !== 'dlc')) {
+				await Pool.beginTransaction(connection);
+				try {
+					await Pool.query(
+						connection,
+						`
+							INSERT INTO games__app (app_id, removed, last_update, queued_for_update)
+							VALUES (${appId}, TRUE, ${connection.escape(Math.trunc(Date.now() / 1e3))}, FALSE)
+							ON DUPLICATE KEY UPDATE removed = VALUES(removed), last_update = VALUES(last_update), queued_for_update = VALUES(queued_for_update)
+						`
+					);
+					await Pool.commit(connection);
+				} catch (err) {
+					await Pool.rollback(connection);
+					throw err;
+				}
 				return;
 			}
 			const storeUrl = `https://store.steampowered.com/app/${appId}?cc=us&l=en`;
@@ -522,6 +537,11 @@ class App {
 					);
 				}
 				await Pool.commit(connection);
+				if (base) {
+					console.log(`Updating DLC base ${base}...`);
+					await Utils.timeout(1);
+					await App.fetch(connection, base);
+				}
 			} catch (err) {
 				await Pool.rollback(connection);
 				throw err;
