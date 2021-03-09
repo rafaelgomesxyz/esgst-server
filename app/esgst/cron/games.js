@@ -1,4 +1,5 @@
 const Pool = require('../class/Connection');
+const Utils = require('../class/Utils');
 const App = require('../routes/games/App');
 const Bundle = require('../routes/games/Bundle');
 const Sub = require('../routes/games/Sub');
@@ -36,13 +37,14 @@ async function updateGames(connection) {
       FROM games__app
       WHERE queued_for_update = TRUE
       ORDER BY last_update
-      LIMIT 100
+      LIMIT 200
     `
 	);
 	console.log(`${appRows.length} apps found!`);
-	for (const appRow of appRows) {
-		console.log(`Updating app ${appRow.app_id}...`);
+	for (const [i, appRow] of appRows.entries()) {
+		console.log(`[${i + 1}] Updating app ${appRow.app_id}...`);
 		await App.fetch(connection, appRow.app_id);
+		await Utils.timeout(1);
 	}
 
 	const bundleRows = await Pool.query(
@@ -52,13 +54,14 @@ async function updateGames(connection) {
       FROM games__bundle
       WHERE queued_for_update = TRUE
       ORDER BY last_update
-      LIMIT 100
+      LIMIT 200
     `
 	);
 	console.log(`${bundleRows.length} bundles found!`);
-	for (const bundleRow of bundleRows) {
-		console.log(`Updating bundle ${bundleRow.bundle_id}...`);
+	for (const [i, bundleRow] of bundleRows.entries()) {
+		console.log(`[${i + 1}] Updating bundle ${bundleRow.bundle_id}...`);
 		await Bundle.fetch(connection, bundleRow.bundle_id);
+		await Utils.timeout(1);
 	}
 
 	const subRows = await Pool.query(
@@ -68,13 +71,14 @@ async function updateGames(connection) {
       FROM games__sub
       WHERE queued_for_update = TRUE
       ORDER BY last_update
-      LIMIT 100
+      LIMIT 200
     `
 	);
 	console.log(`${subRows.length} subs found!`);
-	for (const subRow of subRows) {
-		console.log(`Updating sub ${subRow.sub_id}...`);
+	for (const [i, subRow] of subRows.entries()) {
+		console.log(`[${i + 1}] Updating sub ${subRow.sub_id}...`);
 		await Sub.fetch(connection, subRow.sub_id);
+		await Utils.timeout(1);
 	}
 
 	console.log('Done!');
