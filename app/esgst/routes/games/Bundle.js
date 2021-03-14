@@ -2,7 +2,6 @@ const CustomError = require('../../class/CustomError');
 const Pool = require('../../class/Connection');
 const Request = require('../../class/Request');
 const Utils = require('../../class/Utils');
-const App = require('./App');
 
 /**
  * @api {SCHEMA} Bundle Bundle
@@ -209,13 +208,6 @@ class Bundle {
 				);
 			}
 			await Pool.commit(connection);
-			if (apps.length > 0) {
-				for (const appId of apps) {
-					console.log(`Updating bundle app ${appId}...`);
-					await Utils.timeout(1);
-					await App.fetch(connection, appId);
-				}
-			}
 		} catch (err) {
 			await Pool.rollback(connection);
 			throw err;

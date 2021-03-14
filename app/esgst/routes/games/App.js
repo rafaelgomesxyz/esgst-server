@@ -537,11 +537,6 @@ class App {
 					);
 				}
 				await Pool.commit(connection);
-				if (base) {
-					console.log(`Updating DLC base ${base}...`);
-					await Utils.timeout(1);
-					await App.fetch(connection, base);
-				}
 			} catch (err) {
 				await Pool.rollback(connection);
 				throw err;
