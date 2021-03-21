@@ -5,7 +5,8 @@ const Pool = require('../class/Connection');
 const Request = require('../class/Request');
 const Utils = require('../class/Utils');
 
-const jobJson = require('./uh.json');
+const jsonPath = path.resolve(__dirname, './uh.json');
+const jobJson = require(jsonPath);
 
 doUhCronJob();
 
@@ -113,12 +114,12 @@ async function updateUh(connection) {
 		if (!canceled) {
 			index += 100;
 		}
-		fs.writeFileSync(path.resolve('./uh.json'), JSON.stringify({ index }));
+		fs.writeFileSync(jsonPath, JSON.stringify({ index }));
 	} while (!ended && !canceled);
 	if (canceled) {
 		console.log('Canceled!');
 	} else {
-		fs.writeFileSync(path.resolve('./uh.json'), JSON.stringify({ index: 0 }));
+		fs.writeFileSync(jsonPath, JSON.stringify({ index: 0 }));
 		console.log('Done!');
 	}
 }
