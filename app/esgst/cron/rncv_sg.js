@@ -7,7 +7,8 @@ const Request = require('../class/Request');
 const Utils = require('../class/Utils');
 const Game = require('../routes/games/Game');
 
-const jobJson = require('./rncv_sg.json');
+const jsonPath = path.resolve(__dirname, './rncv_sg.json');
+const jobJson = require(jsonPath);
 
 doRncvSgCronJob();
 
@@ -148,7 +149,7 @@ async function updateRncvSg(connection) {
 			await Pool.rollback(connection);
 			throw err;
 		}
-		fs.writeFileSync(path.resolve('./rncv_sg.json'), JSON.stringify({ page }));
+		fs.writeFileSync(jsonPath, JSON.stringify({ page }));
 		const perPage = response.json.per_page;
 		ended = perPage !== results.length;
 	} while (!ended);
@@ -190,5 +191,5 @@ async function updateRncvSg(connection) {
 		throw err;
 	}
 	console.log('Done!');
-	fs.writeFileSync(path.resolve('./rncv_sg.json'), JSON.stringify({ page: 0 }));
+	fs.writeFileSync(jsonPath, JSON.stringify({ page: 0 }));
 }
