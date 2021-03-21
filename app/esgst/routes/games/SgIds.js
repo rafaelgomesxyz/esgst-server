@@ -151,6 +151,15 @@ class SgIds {
 				result.not_found[`${type}s`].push(id);
 			}
 		}
+		const timestampRow = (
+			await Pool.query(
+				connection,
+				'SELECT name, date FROM timestamps WHERE name = "sgids_last_update"'
+			)
+		)[0];
+		if (timestampRow) {
+			result.last_update = Utils.formatDate(parseInt(timestampRow.date) * 1e3, true);
+		}
 		return result;
 	}
 }
