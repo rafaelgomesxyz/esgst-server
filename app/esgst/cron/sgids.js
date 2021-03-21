@@ -54,6 +54,9 @@ async function updateSgids(connection) {
 				if (type === 'bundle') {
 					continue;
 				}
+				if (Object.keys(games[type]).length === 0) {
+					continue;
+				}
 
 				await Pool.query(
 					connection,
@@ -104,6 +107,9 @@ async function updateSgids(connection) {
 		try {
 			for (const type of Game.TYPES) {
 				if (type === 'bundle') {
+					continue;
+				}
+				if (Object.keys(games[type]).length === 0) {
 					continue;
 				}
 
