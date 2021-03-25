@@ -61,9 +61,13 @@ class Sub {
 		const rows = await Pool.query(
 			connection,
 			`
-			SELECT ${['g_s.sub_id', 'g_s.last_update', 'g_s.queued_for_update', ...Object.values(columns)].join(
-				', '
-			)}
+			SELECT ${[
+				'g_s.sub_id',
+				...(Utils.isSet(columns.release_date) ? [] : ['g_s.release_date']),
+				'g_s.last_update',
+				'g_s.queued_for_update',
+				...Object.values(columns),
+			].join(', ')}
 			FROM games__sub AS g_s
 			${
 				Utils.isSet(columns.name)
@@ -120,9 +124,17 @@ class Sub {
 			sub.last_update = Utils.formatDate(parseInt(row.last_update) * 1e3, true);
 			sub.queued_for_update = !!row.queued_for_update;
 			if (!sub.queued_for_update) {
+				const releaseDate = Utils.isSet(row.release_date)
+					? Math.trunc(new Date(parseInt(row.release_date) * 1e3).getTime() / 1e3)
+					: now;
 				const lastUpdate = Math.trunc(new Date(parseInt(row.last_update) * 1e3).getTime() / 1e3);
 				const differenceInSeconds = now - lastUpdate;
-				if (differenceInSeconds > 60 * 60 * 24 * 6) {
+				if (now - releaseDate > 60 * 60 * 24 * 180) {
+					if (differenceInSeconds > 60 * 60 * 24 * 30) {
+						sub.queued_for_update = true;
+						to_queue.push(sub.sub_id);
+					}
+				} else if (differenceInSeconds > 60 * 60 * 24 * 6) {
 					sub.queued_for_update = true;
 					to_queue.push(sub.sub_id);
 				}

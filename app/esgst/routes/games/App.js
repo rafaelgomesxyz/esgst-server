@@ -98,9 +98,13 @@ class App {
 		const rows = await Pool.query(
 			connection,
 			`
-			SELECT ${['g_a.app_id', 'g_a.last_update', 'g_a.queued_for_update', ...Object.values(columns)].join(
-				', '
-			)}
+			SELECT ${[
+				'g_a.app_id',
+				...(Utils.isSet(columns.release_date) ? [] : ['g_a.release_date']),
+				'g_a.last_update',
+				'g_a.queued_for_update',
+				...Object.values(columns),
+			].join(', ')}
 			FROM games__app AS g_a
 			${
 				Utils.isSet(columns.name)
@@ -277,9 +281,20 @@ class App {
 			app.last_update = Utils.formatDate(parseInt(row.last_update) * 1e3, true);
 			app.queued_for_update = !!row.queued_for_update;
 			if (!app.queued_for_update) {
+				const releaseDate = Utils.isSet(row.release_date)
+					? Math.trunc(new Date(parseInt(row.release_date) * 1e3).getTime() / 1e3)
+					: now;
 				const lastUpdate = Math.trunc(new Date(parseInt(row.last_update) * 1e3).getTime() / 1e3);
 				const differenceInSeconds = now - lastUpdate;
-				if (
+				if (now - releaseDate > 60 * 60 * 24 * 180) {
+					if (
+						differenceInSeconds > 60 * 60 * 24 * 30 ||
+						(!Utils.isSet(row.learning) && !row.removed && differenceInSeconds > 60 * 60 * 24)
+					) {
+						app.queued_for_update = true;
+						to_queue.push(app.app_id);
+					}
+				} else if (
 					differenceInSeconds > 60 * 60 * 24 * 6 ||
 					(!Utils.isSet(row.learning) && !row.removed && differenceInSeconds > 60 * 60 * 24)
 				) {
