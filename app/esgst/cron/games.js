@@ -45,8 +45,8 @@ async function updateGames(connection) {
 	console.log(`${appRows.length} apps found!`);
 	for (const [i, appRow] of appRows.entries()) {
 		if (appRow.release_date) {
-			const releaseDate = Math.trunc(new Date(parseInt(row.release_date) * 1e3).getTime() / 1e3);
-			const lastUpdate = Math.trunc(new Date(parseInt(row.last_update) * 1e3).getTime() / 1e3);
+			const releaseDate = Math.trunc(new Date(parseInt(appRow.release_date) * 1e3).getTime() / 1e3);
+			const lastUpdate = Math.trunc(new Date(parseInt(appRow.last_update) * 1e3).getTime() / 1e3);
 			const differenceInSeconds = now - lastUpdate;
 			if (now - releaseDate > 60 * 60 * 24 * 180 && differenceInSeconds < 60 * 60 * 24 * 30) {
 				await Pool.beginTransaction(connection);
@@ -101,9 +101,9 @@ async function updateGames(connection) {
 	);
 	console.log(`${subRows.length} subs found!`);
 	for (const [i, subRow] of subRows.entries()) {
-		if (appRow.release_date) {
-			const releaseDate = Math.trunc(new Date(parseInt(row.release_date) * 1e3).getTime() / 1e3);
-			const lastUpdate = Math.trunc(new Date(parseInt(row.last_update) * 1e3).getTime() / 1e3);
+		if (subRow.release_date) {
+			const releaseDate = Math.trunc(new Date(parseInt(subRow.release_date) * 1e3).getTime() / 1e3);
+			const lastUpdate = Math.trunc(new Date(parseInt(subRow.last_update) * 1e3).getTime() / 1e3);
 			const differenceInSeconds = now - lastUpdate;
 			if (now - releaseDate > 60 * 60 * 24 * 180 && differenceInSeconds < 60 * 60 * 24 * 30) {
 				await Pool.beginTransaction(connection);
