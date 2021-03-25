@@ -32,6 +32,7 @@ async function updateGames(connection) {
 
 	const now = Math.trunc(Date.now() / 1e3);
 
+	const appsToUnqueue = [];
 	const appRows = await Pool.query(
 		connection,
 		`
@@ -49,27 +50,31 @@ async function updateGames(connection) {
 			const lastUpdate = Math.trunc(new Date(parseInt(appRow.last_update) * 1e3).getTime() / 1e3);
 			const differenceInSeconds = now - lastUpdate;
 			if (now - releaseDate > 60 * 60 * 24 * 180 && differenceInSeconds < 60 * 60 * 24 * 30) {
-				await Pool.beginTransaction(connection);
-				try {
-					await Pool.query(
-						connection,
-						`
-							UPDATE games__app
-							SET queued_for_update = FALSE
-							WHERE app_id = ${connection.escape(appRow.app_id)}
-						`
-					);
-					await Pool.commit(connection);
-				} catch (err) {
-					await Pool.rollback(connection);
-					throw err;
-				}
+				appsToUnqueue.push(appRow.app_id);
 				continue;
 			}
 		}
 		console.log(`[${i + 1}] Updating app ${appRow.app_id}...`);
 		await App.fetch(connection, appRow.app_id);
 		await Utils.timeout(1);
+	}
+	if (appsToUnqueue.length > 0) {
+		console.log(`Unqueueing ${appsToUnqueue.length} apps...`);
+		await Pool.beginTransaction(connection);
+		try {
+			await Pool.query(
+				connection,
+				`
+				UPDATE games__app
+				SET queued_for_update = FALSE
+				WHERE ${appsToUnqueue.map((appId) => `app_id = ${connection.escape(appId)}`).join(' OR ')}
+			`
+			);
+			await Pool.commit(connection);
+		} catch (err) {
+			await Pool.rollback(connection);
+			throw err;
+		}
 	}
 
 	const bundleRows = await Pool.query(
@@ -89,6 +94,7 @@ async function updateGames(connection) {
 		await Utils.timeout(1);
 	}
 
+	const subsToUnqueue = [];
 	const subRows = await Pool.query(
 		connection,
 		`
@@ -106,27 +112,31 @@ async function updateGames(connection) {
 			const lastUpdate = Math.trunc(new Date(parseInt(subRow.last_update) * 1e3).getTime() / 1e3);
 			const differenceInSeconds = now - lastUpdate;
 			if (now - releaseDate > 60 * 60 * 24 * 180 && differenceInSeconds < 60 * 60 * 24 * 30) {
-				await Pool.beginTransaction(connection);
-				try {
-					await Pool.query(
-						connection,
-						`
-							UPDATE games__sub
-							SET queued_for_update = FALSE
-							WHERE sub_id = ${connection.escape(subRow.sub_id)}
-						`
-					);
-					await Pool.commit(connection);
-				} catch (err) {
-					await Pool.rollback(connection);
-					throw err;
-				}
+				subsToUnqueue.push(subRow.sub_id);
 				continue;
 			}
 		}
 		console.log(`[${i + 1}] Updating sub ${subRow.sub_id}...`);
 		await Sub.fetch(connection, subRow.sub_id);
 		await Utils.timeout(1);
+	}
+	if (subsToUnqueue.length > 0) {
+		console.log(`Unqueueing ${subsToUnqueue.length} subs...`);
+		await Pool.beginTransaction(connection);
+		try {
+			await Pool.query(
+				connection,
+				`
+				UPDATE games__sub
+				SET queued_for_update = FALSE
+				WHERE ${subsToUnqueue.map((subId) => `sub_id = ${connection.escape(subId)}`).join(' OR ')}
+			`
+			);
+			await Pool.commit(connection);
+		} catch (err) {
+			await Pool.rollback(connection);
+			throw err;
+		}
 	}
 
 	console.log('Done!');
