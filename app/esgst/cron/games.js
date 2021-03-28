@@ -139,5 +139,23 @@ async function updateGames(connection) {
 		}
 	}
 
+	console.log('Finalizing...');
+
+	await Pool.beginTransaction(connection);
+	try {
+		await Pool.query(
+			connection,
+			`
+        INSERT INTO timestamps (name, date)
+        VALUES ('games_last_update', ${connection.escape(Math.trunc(Date.now() / 1e3))})
+        ON DUPLICATE KEY UPDATE date = VALUES(date)
+      `
+		);
+		await Pool.commit(connection);
+	} catch (err) {
+		await Pool.rollback(connection);
+		throw err;
+	}
+
 	console.log('Done!');
 }

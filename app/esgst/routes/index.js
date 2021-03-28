@@ -5,6 +5,7 @@ const session = require('express-session');
 const passport = require('passport');
 const SteamStrategy = require('passport-steam');
 const Pool = require('../class/Connection');
+const InfoTimestamps = require('./info/Timestamps');
 const Auth = require('./auth/Auth');
 const Game = require('./games/Game');
 const Games = require('./games/Games');
@@ -44,6 +45,7 @@ passport.deserializeUser(async (steamId, done) => {
 
 const routes = Router();
 
+routes.get('/esgst/info/timestamps', InfoTimestamps.get);
 routes.get('/esgst/login', handleSession.bind(null, 'origin_steam', {}, []));
 routes.get('/esgst/login/return', handleSession.bind(null, 'steam', {}, [Auth.login]));
 routes.get('/esgst/me', handleSession.bind(null, 'normal', {}, [Auth.getLoggedInUser]));
