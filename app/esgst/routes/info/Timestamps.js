@@ -31,7 +31,7 @@ class InfoTimestamps {
 			const result = {};
 			const rows = await Pool.query(connection, 'SELECT * FROM timestamps');
 			for (const row of rows) {
-				result[row['name']] = Utils.formatDate(parseInt(row['date']) * 1e3);
+				result[row['name']] = Utils.formatDate(parseInt(row['date']) * 1e3, true);
 			}
 			if (connection) {
 				connection.release();
