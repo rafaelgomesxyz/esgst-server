@@ -33,6 +33,7 @@ async function updateGames(connection) {
 	const now = Math.trunc(Date.now() / 1e3);
 
 	const appsToUnqueue = [];
+	const appsToRemove = [];
 	const appRows = await Pool.query(
 		connection,
 		`
@@ -55,20 +56,45 @@ async function updateGames(connection) {
 			}
 		}
 		console.log(`[${i + 1}] Updating app ${appRow.app_id}...`);
-		await App.fetch(connection, appRow.app_id);
-		await Utils.timeout(1);
+		try {
+			await App.fetch(connection, appRow.app_id);
+			await Utils.timeout(1);
+		} catch (err) {
+			if (err.status === 400) {
+				appsToRemove.push(appRow.app_id);
+			} else {
+				break;
+			}
+		}
 	}
 	if (appsToUnqueue.length > 0) {
-		console.log(`Unqueueing ${appsToUnqueue.length} apps...`);
+		console.log(`Unqueueing ${appsToUnqueue.length} apps (${appsToUnqueue.join(', ')})...`);
 		await Pool.beginTransaction(connection);
 		try {
 			await Pool.query(
 				connection,
 				`
-				UPDATE games__app
-				SET queued_for_update = FALSE
-				WHERE ${appsToUnqueue.map((appId) => `app_id = ${connection.escape(appId)}`).join(' OR ')}
-			`
+					UPDATE games__app
+					SET queued_for_update = FALSE
+					WHERE ${appsToUnqueue.map((appId) => `app_id = ${connection.escape(appId)}`).join(' OR ')}
+				`
+			);
+			await Pool.commit(connection);
+		} catch (err) {
+			await Pool.rollback(connection);
+			throw err;
+		}
+	}
+	if (appsToRemove.length > 0) {
+		console.log(`Removing ${appsToRemove.length} apps (${appsToRemove.join(', ')})...`);
+		await Pool.beginTransaction(connection);
+		try {
+			await Pool.query(
+				connection,
+				`
+					DELETE FROM games__app
+					WHERE ${appsToRemove.map((appId) => `app_id = ${connection.escape(appId)}`).join(' OR ')}
+				`
 			);
 			await Pool.commit(connection);
 		} catch (err) {
@@ -95,6 +121,7 @@ async function updateGames(connection) {
 	}
 
 	const subsToUnqueue = [];
+	const subsToRemove = [];
 	const subRows = await Pool.query(
 		connection,
 		`
@@ -117,20 +144,45 @@ async function updateGames(connection) {
 			}
 		}
 		console.log(`[${i + 1}] Updating sub ${subRow.sub_id}...`);
-		await Sub.fetch(connection, subRow.sub_id);
-		await Utils.timeout(1);
+		try {
+			await Sub.fetch(connection, subRow.sub_id);
+			await Utils.timeout(1);
+		} catch (err) {
+			if (err.status === 400) {
+				subsToRemove.push(subRow.sub_id);
+			} else {
+				break;
+			}
+		}
 	}
 	if (subsToUnqueue.length > 0) {
-		console.log(`Unqueueing ${subsToUnqueue.length} subs...`);
+		console.log(`Unqueueing ${subsToUnqueue.length} subs (${subsToUnqueue.join(', ')})...`);
 		await Pool.beginTransaction(connection);
 		try {
 			await Pool.query(
 				connection,
 				`
-				UPDATE games__sub
-				SET queued_for_update = FALSE
-				WHERE ${subsToUnqueue.map((subId) => `sub_id = ${connection.escape(subId)}`).join(' OR ')}
-			`
+					UPDATE games__sub
+					SET queued_for_update = FALSE
+					WHERE ${subsToUnqueue.map((subId) => `sub_id = ${connection.escape(subId)}`).join(' OR ')}
+				`
+			);
+			await Pool.commit(connection);
+		} catch (err) {
+			await Pool.rollback(connection);
+			throw err;
+		}
+	}
+	if (subsToRemove.length > 0) {
+		console.log(`Removing ${subsToRemove.length} subs (${subsToRemove.join(', ')})...`);
+		await Pool.beginTransaction(connection);
+		try {
+			await Pool.query(
+				connection,
+				`
+					DELETE FROM games__sub
+					WHERE ${subsToRemove.map((subId) => `sub_id = ${connection.escape(subId)}`).join(' OR ')}
+				`
 			);
 			await Pool.commit(connection);
 		} catch (err) {
