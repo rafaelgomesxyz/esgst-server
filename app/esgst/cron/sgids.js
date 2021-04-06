@@ -15,7 +15,7 @@ if (!fs.existsSync(logPath)) {
 if (!fs.existsSync(jsonPath)) {
 	fs.writeFileSync(jsonPath, JSON.stringify({ page: 0 }));
 }
-const jobLog = fs.readFileSync(logPath).split('\n');
+const jobLog = fs.readFileSync(logPath, 'utf8').split('\n');
 const jobJson = require(jsonPath);
 
 doSgidsJob();

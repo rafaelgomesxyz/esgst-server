@@ -8,7 +8,7 @@ const logPath = path.resolve(__dirname, './games.log');
 if (!fs.existsSync(logPath)) {
 	fs.writeFileSync(logPath, '');
 }
-const jobLog = fs.readFileSync(logPath).split('\n');
+const jobLog = fs.readFileSync(logPath, 'utf8').split('\n');
 
 doGamesCronJob();
 
