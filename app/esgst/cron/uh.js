@@ -5,12 +5,21 @@ const Pool = require('../class/Connection');
 const Request = require('../class/Request');
 const Utils = require('../class/Utils');
 
+const logPath = path.resolve(__dirname, './uh.log');
 const jsonPath = path.resolve(__dirname, './uh.json');
+if (!fs.existsSync(logPath)) {
+	fs.writeFileSync(logPath, '');
+}
+if (!fs.existsSync(jsonPath)) {
+	fs.writeFileSync(jsonPath, JSON.stringify({ index: 0 }));
+}
+const jobLog = fs.readFileSync(logPath).split('\n');
 const jobJson = require(jsonPath);
 
 doUhCronJob();
 
 async function doUhCronJob() {
+	Utils.log(jobLog, new Date().toUTCString());
 	/** @type {import('mysql').PoolConnection} */
 	let connection = null;
 	try {
@@ -23,8 +32,9 @@ async function doUhCronJob() {
 		if (connection) {
 			connection.release();
 		}
-		console.log(`UH histories update failed: ${err}`);
+		Utils.log(jobLog, `UH histories update failed: ${err}`);
 	}
+	fs.writeFileSync(logPath, jobLog.join('\n'));
 	process.exit();
 }
 
@@ -37,7 +47,7 @@ async function updateUh(connection) {
 	let ended = false;
 	let canceled = false;
 	if (index == 0) {
-		console.log('Initializing...');
+		Utils.log(jobLog, 'Initializing...');
 	}
 	do {
 		const rows = await Pool.query(
@@ -51,7 +61,7 @@ async function updateUh(connection) {
 		ended = rows.length === 0;
 		if (!ended) {
 			const uh = [];
-			console.log(`Updating UH histories (index ${index}...)`);
+			Utils.log(jobLog, `Updating UH histories (index ${index}...)`);
 			for (const row of rows) {
 				const steamId = row.steam_id;
 				const usernames = row.usernames.split(', ');
@@ -117,9 +127,9 @@ async function updateUh(connection) {
 		fs.writeFileSync(jsonPath, JSON.stringify({ index }));
 	} while (!ended && !canceled);
 	if (canceled) {
-		console.log('Canceled!');
+		Utils.log(jobLog, 'Canceled!');
 	} else {
-		console.log('Finalizing...');
+		Utils.log(jobLog, 'Finalizing...');
 
 		await Pool.beginTransaction(connection);
 		try {
@@ -138,6 +148,6 @@ async function updateUh(connection) {
 		}
 
 		fs.writeFileSync(jsonPath, JSON.stringify({ index: 0 }));
-		console.log('Done!');
+		Utils.log(jobLog, 'Done!');
 	}
 }

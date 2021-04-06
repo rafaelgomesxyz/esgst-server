@@ -7,12 +7,21 @@ const Request = require('../class/Request');
 const Utils = require('../class/Utils');
 const Game = require('../routes/games/Game');
 
+const logPath = path.resolve(__dirname, './rncv_sg.log');
 const jsonPath = path.resolve(__dirname, './rncv_sg.json');
+if (!fs.existsSync(logPath)) {
+	fs.writeFileSync(logPath, '');
+}
+if (!fs.existsSync(jsonPath)) {
+	fs.writeFileSync(jsonPath, JSON.stringify({ page: 0 }));
+}
+const jobLog = fs.readFileSync(logPath).split('\n');
 const jobJson = require(jsonPath);
 
 doRncvSgCronJob();
 
 async function doRncvSgCronJob() {
+	Utils.log(jobLog, new Date().toUTCString());
 	/** @type {import('mysql').PoolConnection} */
 	let connection = null;
 	try {
@@ -25,8 +34,9 @@ async function doRncvSgCronJob() {
 		if (connection) {
 			connection.release();
 		}
-		console.log(`RCV/NCV games update from SG failed: ${err}`);
+		Utils.log(jobLog, `RCV/NCV games update from SG failed: ${err}`);
 	}
+	fs.writeFileSync(logPath, jobLog.join('\n'));
 	process.exit();
 }
 
@@ -38,7 +48,7 @@ async function updateRncvSg(connection) {
 	let page = jobJson.page;
 	let ended = false;
 	if (page == 0) {
-		console.log('Initializing...');
+		Utils.log(jobLog, 'Initializing...');
 		await Pool.beginTransaction(connection);
 		try {
 			for (const type of Game.TYPES) {
@@ -57,7 +67,7 @@ async function updateRncvSg(connection) {
 	do {
 		await Utils.timeout(1);
 		page += 1;
-		console.log(`Updating RCV/NCV games from SG (page ${page}...)`);
+		Utils.log(jobLog, `Updating RCV/NCV games from SG (page ${page}...)`);
 		const names = {
 			app: [],
 			sub: [],
@@ -153,7 +163,7 @@ async function updateRncvSg(connection) {
 		const perPage = response.json.per_page;
 		ended = perPage !== results.length;
 	} while (!ended);
-	console.log('Finalizing...');
+	Utils.log(jobLog, 'Finalizing...');
 	await Pool.beginTransaction(connection);
 	try {
 		for (const type of Game.TYPES) {
@@ -190,6 +200,6 @@ async function updateRncvSg(connection) {
 		await Pool.rollback(connection);
 		throw err;
 	}
-	console.log('Done!');
+	Utils.log(jobLog, 'Done!');
 	fs.writeFileSync(jsonPath, JSON.stringify({ page: 0 }));
 }

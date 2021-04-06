@@ -7,12 +7,21 @@ const Request = require('../class/Request');
 const Utils = require('../class/Utils');
 const Game = require('../routes/games/Game');
 
+const logPath = path.resolve(__dirname, './sgids.log');
 const jsonPath = path.resolve(__dirname, './sgids.json');
+if (!fs.existsSync(logPath)) {
+	fs.writeFileSync(logPath, '');
+}
+if (!fs.existsSync(jsonPath)) {
+	fs.writeFileSync(jsonPath, JSON.stringify({ page: 0 }));
+}
+const jobLog = fs.readFileSync(logPath).split('\n');
 const jobJson = require(jsonPath);
 
 doSgidsJob();
 
 async function doSgidsJob() {
+	Utils.log(jobLog, new Date().toUTCString());
 	/** @type {import('mysql').PoolConnection} */
 	let connection = null;
 	try {
@@ -25,8 +34,9 @@ async function doSgidsJob() {
 		if (connection) {
 			connection.release();
 		}
-		console.log(`SG IDs update failed: ${err}`);
+		Utils.log(jobLog, `SG IDs update failed: ${err}`);
 	}
+	fs.writeFileSync(logPath, jobLog.join('\n'));
 	process.exit();
 }
 
@@ -38,7 +48,7 @@ async function updateSgids(connection) {
 	let ended = false;
 
 	if (page == 0) {
-		console.log('Initializing...');
+		Utils.log(jobLog, 'Initializing...');
 
 		const games = {
 			app: {},
@@ -83,7 +93,7 @@ async function updateSgids(connection) {
 
 		page += 1;
 
-		console.log(`Updating SG IDs (page ${page}...)`);
+		Utils.log(jobLog, `Updating SG IDs (page ${page}...)`);
 
 		const games = {
 			app: {},
@@ -138,7 +148,7 @@ async function updateSgids(connection) {
 		ended = perPage !== results.length;
 	} while (!ended);
 
-	console.log('Finalizing...');
+	Utils.log(jobLog, 'Finalizing...');
 
 	await Pool.beginTransaction(connection);
 	try {
@@ -156,7 +166,7 @@ async function updateSgids(connection) {
 		throw err;
 	}
 
-	console.log('Done!');
+	Utils.log(jobLog, 'Done!');
 
 	fs.writeFileSync(jsonPath, JSON.stringify({ page: 0 }));
 }

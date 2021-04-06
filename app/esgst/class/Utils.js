@@ -54,6 +54,11 @@ class Utils {
 		return typeof variable !== 'undefined' && variable !== null;
 	}
 
+	static log(logArr, logMsg) {
+		logArr.push(logMsg);
+		console.log(logMsg);
+	}
+
 	/**
 	 * @param {number} seconds
 	 */

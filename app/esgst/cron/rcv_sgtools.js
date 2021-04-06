@@ -1,12 +1,20 @@
 const CustomError = require('../class/CustomError');
 const Pool = require('../class/Connection');
 const Request = require('../class/Request');
+const Utils = require('../class/Utils');
 const Game = require('../routes/games/Game');
 const secrets = require('../config').secrets;
+
+const logPath = path.resolve(__dirname, './rcv_sgtools.log');
+if (!fs.existsSync(logPath)) {
+	fs.writeFileSync(logPath, '');
+}
+const jobLog = fs.readFileSync(logPath).split('\n');
 
 doRcvSgToolsCronJob();
 
 async function doRcvSgToolsCronJob() {
+	Utils.log(jobLog, new Date().toUTCString());
 	/** @type {import('mysql').PoolConnection} */
 	let connection = null;
 	try {
@@ -19,8 +27,9 @@ async function doRcvSgToolsCronJob() {
 		if (connection) {
 			connection.release();
 		}
-		console.log(`RCV games update from SGTools failed: ${err}`);
+		Utils.log(jobLog, `RCV games update from SGTools failed: ${err}`);
 	}
+	fs.writeFileSync(logPath, jobLog.join('\n'));
 	process.exit();
 }
 
@@ -28,7 +37,7 @@ async function doRcvSgToolsCronJob() {
  * @param {import('mysql').PoolConnection} connection
  */
 async function updateRcvSgTools(connection) {
-	console.log(`Updating RCV games from SGTools...`);
+	Utils.log(jobLog, `Updating RCV games from SGTools...`);
 	const url = `http://www.sgtools.info/api/lastBundled?apiKey=${secrets.sgToolsApiKey}`;
 	const response = await Request.get(url);
 	if (!response.json) {
@@ -104,5 +113,5 @@ async function updateRcvSgTools(connection) {
 		await Pool.rollback(connection);
 		throw err;
 	}
-	console.log('Done!');
+	Utils.log(jobLog, 'Done!');
 }

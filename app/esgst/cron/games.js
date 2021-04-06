@@ -4,9 +4,16 @@ const App = require('../routes/games/App');
 const Bundle = require('../routes/games/Bundle');
 const Sub = require('../routes/games/Sub');
 
+const logPath = path.resolve(__dirname, './games.log');
+if (!fs.existsSync(logPath)) {
+	fs.writeFileSync(logPath, '');
+}
+const jobLog = fs.readFileSync(logPath).split('\n');
+
 doGamesCronJob();
 
 async function doGamesCronJob() {
+	Utils.log(jobLog, new Date().toUTCString());
 	/** @type {import('mysql').PoolConnection} */
 	let connection = null;
 	try {
@@ -19,8 +26,9 @@ async function doGamesCronJob() {
 		if (connection) {
 			connection.release();
 		}
-		console.log(`Games update failed: ${err}`);
+		Utils.log(jobLog, `Games update failed: ${err}`);
 	}
+	fs.writeFileSync(logPath, jobLog.join('\n'));
 	process.exit();
 }
 
@@ -28,7 +36,7 @@ async function doGamesCronJob() {
  * @param {import('mysql').PoolConnection} connection
  */
 async function updateGames(connection) {
-	console.log('Initializing...');
+	Utils.log(jobLog, 'Initializing...');
 
 	const now = Math.trunc(Date.now() / 1e3);
 
@@ -44,7 +52,7 @@ async function updateGames(connection) {
       LIMIT 200
     `
 	);
-	console.log(`${appRows.length} apps found!`);
+	Utils.log(jobLog, `${appRows.length} apps found!`);
 	for (const [i, appRow] of appRows.entries()) {
 		if (appRow.release_date) {
 			const releaseDate = Math.trunc(new Date(parseInt(appRow.release_date) * 1e3).getTime() / 1e3);
@@ -55,7 +63,7 @@ async function updateGames(connection) {
 				continue;
 			}
 		}
-		console.log(`[${i + 1}] Updating app ${appRow.app_id}...`);
+		Utils.log(jobLog, `[${i + 1}] Updating app ${appRow.app_id}...`);
 		try {
 			await App.fetch(connection, appRow.app_id);
 			await Utils.timeout(1);
@@ -68,7 +76,7 @@ async function updateGames(connection) {
 		}
 	}
 	if (appsToUnqueue.length > 0) {
-		console.log(`Unqueueing ${appsToUnqueue.length} apps (${appsToUnqueue.join(', ')})...`);
+		Utils.log(jobLog, `Unqueueing ${appsToUnqueue.length} apps (${appsToUnqueue.join(', ')})...`);
 		await Pool.beginTransaction(connection);
 		try {
 			await Pool.query(
@@ -86,7 +94,7 @@ async function updateGames(connection) {
 		}
 	}
 	if (appsToRemove.length > 0) {
-		console.log(`Removing ${appsToRemove.length} apps (${appsToRemove.join(', ')})...`);
+		Utils.log(jobLog, `Removing ${appsToRemove.length} apps (${appsToRemove.join(', ')})...`);
 		await Pool.beginTransaction(connection);
 		try {
 			await Pool.query(
@@ -113,9 +121,9 @@ async function updateGames(connection) {
       LIMIT 200
     `
 	);
-	console.log(`${bundleRows.length} bundles found!`);
+	Utils.log(jobLog, `${bundleRows.length} bundles found!`);
 	for (const [i, bundleRow] of bundleRows.entries()) {
-		console.log(`[${i + 1}] Updating bundle ${bundleRow.bundle_id}...`);
+		Utils.log(jobLog, `[${i + 1}] Updating bundle ${bundleRow.bundle_id}...`);
 		await Bundle.fetch(connection, bundleRow.bundle_id);
 		await Utils.timeout(1);
 	}
@@ -132,7 +140,7 @@ async function updateGames(connection) {
       LIMIT 200
     `
 	);
-	console.log(`${subRows.length} subs found!`);
+	Utils.log(jobLog, `${subRows.length} subs found!`);
 	for (const [i, subRow] of subRows.entries()) {
 		if (subRow.release_date) {
 			const releaseDate = Math.trunc(new Date(parseInt(subRow.release_date) * 1e3).getTime() / 1e3);
@@ -143,7 +151,7 @@ async function updateGames(connection) {
 				continue;
 			}
 		}
-		console.log(`[${i + 1}] Updating sub ${subRow.sub_id}...`);
+		Utils.log(jobLog, `[${i + 1}] Updating sub ${subRow.sub_id}...`);
 		try {
 			await Sub.fetch(connection, subRow.sub_id);
 			await Utils.timeout(1);
@@ -156,7 +164,7 @@ async function updateGames(connection) {
 		}
 	}
 	if (subsToUnqueue.length > 0) {
-		console.log(`Unqueueing ${subsToUnqueue.length} subs (${subsToUnqueue.join(', ')})...`);
+		Utils.log(jobLog, `Unqueueing ${subsToUnqueue.length} subs (${subsToUnqueue.join(', ')})...`);
 		await Pool.beginTransaction(connection);
 		try {
 			await Pool.query(
@@ -174,7 +182,7 @@ async function updateGames(connection) {
 		}
 	}
 	if (subsToRemove.length > 0) {
-		console.log(`Removing ${subsToRemove.length} subs (${subsToRemove.join(', ')})...`);
+		Utils.log(jobLog, `Removing ${subsToRemove.length} subs (${subsToRemove.join(', ')})...`);
 		await Pool.beginTransaction(connection);
 		try {
 			await Pool.query(
@@ -191,7 +199,7 @@ async function updateGames(connection) {
 		}
 	}
 
-	console.log('Finalizing...');
+	Utils.log(jobLog, 'Finalizing...');
 
 	await Pool.beginTransaction(connection);
 	try {
@@ -209,5 +217,5 @@ async function updateGames(connection) {
 		throw err;
 	}
 
-	console.log('Done!');
+	Utils.log(jobLog, 'Done!');
 }
