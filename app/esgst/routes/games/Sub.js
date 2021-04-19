@@ -37,9 +37,9 @@ class Sub {
 			removed: 'g_s.removed',
 			price: 'g_s.price',
 			release_date: 'g_s.release_date',
-			apps: 'g_sa_j.apps',
 		};
-		const columnKeys = Object.keys(columns);
+		const columnKeys = [...Object.keys(columns), 'apps'];
+
 		const params = Object.assign({}, { filters: req.query.filters || req.query.sub_filters || '' });
 		const validator = {
 			filters: {
@@ -50,49 +50,59 @@ class Sub {
 			},
 		};
 		Utils.validateParams(params, validator);
+
+		const filters = {};
+		for (const columnKey of columnKeys) {
+			filters[columnKey] = true;
+		}
 		if (params.filters) {
 			const filterKeys = params.filters.split(',');
 			for (const columnKey of columnKeys) {
 				if (!filterKeys.includes(columnKey)) {
 					delete columns[columnKey];
+					delete filters[columnKey];
 				}
 			}
 		}
+
+		const preparedIds = ids.map((id) => connection.escape(id)).join(',');
 		const rows = await Pool.query(
 			connection,
 			`
-			SELECT ${[
-				'g_s.sub_id',
-				...(Utils.isSet(columns.release_date) ? [] : ['g_s.release_date']),
-				'g_s.last_update',
-				'g_s.queued_for_update',
-				...Object.values(columns),
-			].join(', ')}
-			FROM games__sub AS g_s
-			${
-				Utils.isSet(columns.name)
-					? `
-				INNER JOIN games__sub_name AS g_sn
-				ON g_s.sub_id = g_sn.sub_id
+				SELECT ${[
+					'g_s.sub_id',
+					...Object.values(columns),
+					...(filters.release_date ? [] : ['g_s.release_date']),
+					'g_s.last_update',
+					'g_s.queued_for_update',
+				].join(', ')}
+				FROM games__sub AS g_s
+				${
+					filters.name
+						? `
+								INNER JOIN games__sub_name AS g_sn
+								ON g_s.sub_id = g_sn.sub_id
+							`
+						: ''
+				}
+				WHERE g_s.sub_id IN (${preparedIds})
 			`
-					: ''
-			}
-			${
-				Utils.isSet(columns.apps)
-					? `
-				LEFT JOIN (
-					SELECT g_sa.sub_id, GROUP_CONCAT(DISTINCT g_sa.app_id) AS apps
-					FROM games__sub_app AS g_sa
-					GROUP BY g_sa.sub_id
-				) AS g_sa_j
-				ON g_s.sub_id = g_sa_j.sub_id
-			`
-					: ''
-			}
-			WHERE ${ids.map((id) => `g_s.sub_id = ${connection.escape(id)}`).join(' OR ')}
-			GROUP BY g_s.sub_id
-		`
 		);
+
+		let appMap = {};
+		if (filters.apps) {
+			const appRows = await Pool.query(
+				connection,
+				`
+					SELECT g_sa.sub_id, GROUP_CONCAT(g_sa.app_id) AS apps
+					FROM games__sub_app AS g_sa
+					WHERE g_sa.sub_id IN (${preparedIds})
+					GROUP BY g_sa.sub_id
+				`
+			);
+			appMap = Utils.getQueryMap(appRows, 'sub_id');
+		}
+
 		const subs = [];
 		const found = [];
 		const to_queue = [];
@@ -101,25 +111,26 @@ class Sub {
 			const sub = {
 				sub_id: row.sub_id,
 			};
-			if (Utils.isSet(columns.name)) {
+			if (filters.name) {
 				sub.name = row.name;
 			}
-			if (Utils.isSet(columns.released)) {
+			if (filters.released) {
 				sub.released = !!row.released;
 			}
-			if (Utils.isSet(columns.removed)) {
+			if (filters.removed) {
 				sub.removed = !!row.removed;
 			}
-			if (Utils.isSet(columns.price)) {
+			if (filters.price) {
 				sub.price = row.price;
 			}
-			if (Utils.isSet(columns.release_date)) {
+			if (filters.release_date) {
 				sub.release_date = Utils.isSet(row.release_date)
 					? Utils.formatDate(parseInt(row.release_date) * 1e3)
 					: null;
 			}
-			if (Utils.isSet(columns.apps)) {
-				sub.apps = row.apps ? row.apps.split(',').map((appId) => parseInt(appId)) : [];
+			if (filters.apps) {
+				const appRow = appMap[row.sub_id];
+				sub.apps = appRow ? appRow.apps.split(',').map((appId) => parseInt(appId)) : [];
 			}
 			sub.last_update = Utils.formatDate(parseInt(row.last_update) * 1e3, true);
 			sub.queued_for_update = !!row.queued_for_update;
