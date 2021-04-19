@@ -85,19 +85,23 @@ class App {
 		Utils.validateParams(params, validator);
 
 		const filters = {};
+		for (const columnKey of columnKeys) {
+			filters[columnKey] = true;
+		}
 		if (params.filters) {
 			const filterKeys = params.filters.split(',');
-			for (const filterKey of filterKeys) {
-				filters[filterKey] = true;
-			}
 			for (const columnKey of columnKeys) {
 				if (!filterKeys.includes(columnKey)) {
 					delete columns[columnKey];
+					delete filters[columnKey];
 				}
 			}
 		}
 
-		const preparedIds = ids.map((id) => connection.escape(id)).join(', ');
+		const preparedIds = ids
+			.map((id) => connection.escape(id))
+			.filter((id) => id)
+			.join(', ');
 		const rows = await Pool.query(
 			connection,
 			`
