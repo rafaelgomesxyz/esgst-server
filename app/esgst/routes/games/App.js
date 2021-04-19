@@ -126,11 +126,11 @@ class App {
 							`
 						: ''
 				}
-				WHERE ${preparedIds}
+				WHERE g_a.app_id IN (${preparedIds})
 			`
 		);
 
-		const genreMap = {};
+		let genreMap = {};
 		if (filters.genres) {
 			const genreRows = await Pool.query(
 				connection,
@@ -146,7 +146,7 @@ class App {
 			genreMap = Utils.getQueryMap(genreRows, 'app_id');
 		}
 
-		const tagMap = {};
+		let tagMap = {};
 		if (filters.tags) {
 			const tagRows = await Pool.query(
 				connection,
@@ -162,7 +162,7 @@ class App {
 			tagMap = Utils.getQueryMap(tagRows, 'app_id');
 		}
 
-		const dlcMap = {};
+		let dlcMap = {};
 		if (filters.dlcs) {
 			const dlcRows = await Pool.query(
 				connection,
@@ -176,7 +176,7 @@ class App {
 			dlcMap = Utils.getQueryMap(dlcRows, 'app_id');
 		}
 
-		const subMap = {};
+		let subMap = {};
 		if (filters.subs) {
 			const subRows = await Pool.query(
 				connection,
@@ -190,7 +190,7 @@ class App {
 			subMap = Utils.getQueryMap(subRows, 'app_id');
 		}
 
-		const bundleMap = {};
+		let bundleMap = {};
 		if (filters.bundles) {
 			const bundleRows = await Pool.query(
 				connection,
