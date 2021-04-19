@@ -69,14 +69,10 @@ class App {
 			metacritic: 'g_a.metacritic_score, g_a.metacritic_id',
 			rating: 'g_a.rating_percentage, g_a.rating_count',
 			release_date: 'g_a.release_date',
-			genres: 'g_ag_j.genres',
-			tags: 'g_at_j.tags',
 			base: 'g_d.app_id AS base',
-			dlcs: 'g_d_j.dlcs',
-			subs: 'g_sa_j.subs',
-			bundles: 'g_ba_j.bundles',
 		};
-		const columnKeys = Object.keys(columns);
+		const columnKeys = [...Object.keys(columns), 'genres', 'tags', 'dlcs', 'subs', 'bundles'];
+
 		const params = Object.assign({}, { filters: req.query.filters || req.query.app_filters || '' });
 		const validator = {
 			filters: {
@@ -87,109 +83,127 @@ class App {
 			},
 		};
 		Utils.validateParams(params, validator);
+
+		const filters = {};
+		for (const columnKey of columnKeys) {
+			filters[columnKey] = true;
+		}
 		if (params.filters) {
 			const filterKeys = params.filters.split(',');
 			for (const columnKey of columnKeys) {
 				if (!filterKeys.includes(columnKey)) {
 					delete columns[columnKey];
+					delete filters[columnKey];
 				}
 			}
 		}
+
+		const preparedIds = ids.map((id) => connection.escape(id)).join(',');
 		const rows = await Pool.query(
 			connection,
 			`
-			SELECT ${[
-				'g_a.app_id',
-				...(Utils.isSet(columns.release_date) ? [] : ['g_a.release_date']),
-				'g_a.last_update',
-				'g_a.queued_for_update',
-				...Object.values(columns),
-			].join(', ')}
-			FROM games__app AS g_a
-			${
-				Utils.isSet(columns.name)
-					? `
-				INNER JOIN games__app_name AS g_an
-				ON g_a.app_id = g_an.app_id
+				SELECT ${[
+					'g_a.app_id',
+					...Object.values(columns),
+					...(filters.release_date ? [] : ['g_a.release_date']),
+					'g_a.last_update',
+					'g_a.queued_for_update',
+				].join(', ')}
+				FROM games__app AS g_a
+				${
+					filters.name
+						? `
+								INNER JOIN games__app_name AS g_an
+								ON g_a.app_id = g_an.app_id
+							`
+						: ''
+				}
+				${
+					filters.base
+						? `
+								LEFT JOIN games__dlc AS g_d
+								ON g_a.app_id = g_d.dlc_id
+							`
+						: ''
+				}
+				WHERE g_a.app_id IN (${preparedIds})
 			`
-					: ''
-			}
-			${
-				Utils.isSet(columns.genres)
-					? `
-				LEFT JOIN (
-					SELECT g_ag.app_id, GROUP_CONCAT(DISTINCT g_g.name) AS genres
+		);
+
+		let genreMap = {};
+		if (filters.genres) {
+			const genreRows = await Pool.query(
+				connection,
+				`
+					SELECT g_ag.app_id, GROUP_CONCAT(g_g.name) AS genres
 					FROM games__app_genre AS g_ag
 					INNER JOIN games__genre AS g_g
 					ON g_ag.genre_id = g_g.genre_id
+					WHERE g_ag.app_id IN (${preparedIds})
 					GROUP BY g_ag.app_id
-				) AS g_ag_j
-				ON g_a.app_id = g_ag_j.app_id
-			`
-					: ''
-			}
-			${
-				Utils.isSet(columns.tags)
-					? `
-				LEFT JOIN (
-					SELECT g_at.app_id, GROUP_CONCAT(DISTINCT g_t.name) AS tags
+				`
+			);
+			genreMap = Utils.getQueryMap(genreRows, 'app_id');
+		}
+
+		let tagMap = {};
+		if (filters.tags) {
+			const tagRows = await Pool.query(
+				connection,
+				`
+					SELECT g_at.app_id, GROUP_CONCAT(g_t.name) AS tags
 					FROM games__app_tag AS g_at
 					INNER JOIN games__tag AS g_t
 					ON g_at.tag_id = g_t.tag_id
+					WHERE g_at.app_id IN (${preparedIds})
 					GROUP BY g_at.app_id
-				) AS g_at_j
-				ON g_a.app_id = g_at_j.app_id
-			`
-					: ''
-			}
-			${
-				Utils.isSet(columns.base)
-					? `
-				LEFT JOIN games__dlc AS g_d
-				ON g_a.app_id = g_d.dlc_id
-			`
-					: ''
-			}
-			${
-				Utils.isSet(columns.dlcs)
-					? `
-				LEFT JOIN (
-					SELECT g_d_i.app_id, GROUP_CONCAT(DISTINCT g_d_i.dlc_id) AS dlcs
-					FROM games__dlc AS g_d_i
-					GROUP BY g_d_i.app_id
-				) AS g_d_j
-				ON g_a.app_id = g_d_j.app_id
-			`
-					: ''
-			}
-			${
-				Utils.isSet(columns.subs)
-					? `
-				LEFT JOIN (
-					SELECT g_sa.app_id, GROUP_CONCAT(DISTINCT g_sa.sub_id) AS subs
+				`
+			);
+			tagMap = Utils.getQueryMap(tagRows, 'app_id');
+		}
+
+		let dlcMap = {};
+		if (filters.dlcs) {
+			const dlcRows = await Pool.query(
+				connection,
+				`
+					SELECT g_d.app_id, GROUP_CONCAT(g_d.dlc_id) AS dlcs
+					FROM games__dlc AS g_d
+					WHERE g_d.app_id IN (${preparedIds})
+					GROUP BY g_d.app_id
+				`
+			);
+			dlcMap = Utils.getQueryMap(dlcRows, 'app_id');
+		}
+
+		let subMap = {};
+		if (filters.subs) {
+			const subRows = await Pool.query(
+				connection,
+				`
+					SELECT g_sa.app_id, GROUP_CONCAT(g_sa.sub_id) AS subs
 					FROM games__sub_app AS g_sa
+					WHERE g_sa.app_id IN (${preparedIds})
 					GROUP BY g_sa.app_id
-				) AS g_sa_j
-				ON g_a.app_id = g_sa_j.app_id
-			`
-					: ''
-			}
-			${
-				Utils.isSet(columns.bundles)
-					? `
-				LEFT JOIN (
-					SELECT g_ba.app_id, GROUP_CONCAT(DISTINCT g_ba.bundle_id) AS bundles
+				`
+			);
+			subMap = Utils.getQueryMap(subRows, 'app_id');
+		}
+
+		let bundleMap = {};
+		if (filters.bundles) {
+			const bundleRows = await Pool.query(
+				connection,
+				`
+					SELECT g_ba.app_id, GROUP_CONCAT(g_ba.bundle_id) AS bundles
 					FROM games__bundle_app AS g_ba
+					WHERE g_ba.app_id IN (${preparedIds})
 					GROUP BY g_ba.app_id
-				) AS g_ba_j
-				ON g_a.app_id = g_ba_j.app_id
-			`
-					: ''
-			}
-			WHERE ${ids.map((id) => `g_a.app_id = ${connection.escape(id)}`).join(' OR ')}
-			GROUP BY g_a.app_id
-		`
-		);
+				`
+			);
+			bundleMap = Utils.getQueryMap(bundleRows, 'app_id');
+		}
+
 		const apps = [];
 		const found = [];
 		const to_queue = [];
@@ -198,46 +212,46 @@ class App {
 			const app = {
 				app_id: row.app_id,
 			};
-			if (Utils.isSet(columns.name)) {
+			if (filters.name) {
 				app.name = row.name;
 			}
-			if (Utils.isSet(columns.released)) {
+			if (filters.released) {
 				app.released = !!row.released;
 			}
-			if (Utils.isSet(columns.removed)) {
+			if (filters.removed) {
 				app.removed = !!row.removed;
 			}
-			if (Utils.isSet(columns.steam_cloud)) {
+			if (filters.steam_cloud) {
 				app.steam_cloud = !!row.steam_cloud;
 			}
-			if (Utils.isSet(columns.trading_cards)) {
+			if (filters.trading_cards) {
 				app.trading_cards = !!row.trading_cards;
 			}
-			if (Utils.isSet(columns.learning)) {
+			if (filters.learning) {
 				app.learning = Utils.isSet(row.learning) ? !!row.learning : null;
 			}
-			if (Utils.isSet(columns.multiplayer)) {
+			if (filters.multiplayer) {
 				app.multiplayer = !!row.multiplayer;
 			}
-			if (Utils.isSet(columns.singleplayer)) {
+			if (filters.singleplayer) {
 				app.singleplayer = !!row.singleplayer;
 			}
-			if (Utils.isSet(columns.linux)) {
+			if (filters.linux) {
 				app.linux = !!row.linux;
 			}
-			if (Utils.isSet(columns.mac)) {
+			if (filters.mac) {
 				app.mac = !!row.mac;
 			}
-			if (Utils.isSet(columns.windows)) {
+			if (filters.windows) {
 				app.windows = !!row.windows;
 			}
-			if (Utils.isSet(columns.achievements)) {
+			if (filters.achievements) {
 				app.achievements = row.achievements;
 			}
-			if (Utils.isSet(columns.price)) {
+			if (filters.price) {
 				app.price = row.price;
 			}
-			if (Utils.isSet(columns.metacritic)) {
+			if (filters.metacritic) {
 				app.metacritic = Utils.isSet(row.metacritic_score)
 					? {
 							score: row.metacritic_score,
@@ -245,7 +259,7 @@ class App {
 					  }
 					: null;
 			}
-			if (Utils.isSet(columns.rating)) {
+			if (filters.rating) {
 				app.rating = Utils.isSet(row.rating_percentage)
 					? {
 							percentage: row.rating_percentage,
@@ -253,29 +267,34 @@ class App {
 					  }
 					: null;
 			}
-			if (Utils.isSet(columns.release_date)) {
+			if (filters.release_date) {
 				app.release_date = Utils.isSet(row.release_date)
 					? Utils.formatDate(parseInt(row.release_date) * 1e3)
 					: null;
 			}
-			if (Utils.isSet(columns.genres)) {
-				app.genres = row.genres ? row.genres.split(',') : [];
+			if (filters.genres) {
+				const genreRow = genreMap[row.app_id];
+				app.genres = genreRow ? genreRow.genres.split(',') : [];
 			}
-			if (Utils.isSet(columns.tags)) {
-				app.tags = row.tags ? row.tags.split(',') : [];
+			if (filters.tags) {
+				const tagRow = tagMap[row.app_id];
+				app.tags = tagRow ? tagRow.tags.split(',') : [];
 			}
-			if (Utils.isSet(columns.base)) {
+			if (filters.base) {
 				app.base = Utils.isSet(row.base) ? row.base : null;
 			}
-			if (Utils.isSet(columns.dlcs)) {
-				app.dlcs = row.dlcs ? row.dlcs.split(',').map((dlcId) => parseInt(dlcId)) : [];
+			if (filters.dlcs) {
+				const dlcRow = dlcMap[row.app_id];
+				app.dlcs = dlcRow ? dlcRow.dlcs.split(',').map((dlcId) => parseInt(dlcId)) : [];
 			}
-			if (Utils.isSet(columns.subs)) {
-				app.subs = row.subs ? row.subs.split(',').map((subId) => parseInt(subId)) : [];
+			if (filters.subs) {
+				const subRow = subMap[row.app_id];
+				app.subs = subRow ? subRow.subs.split(',').map((subId) => parseInt(subId)) : [];
 			}
-			if (Utils.isSet(columns.bundles)) {
-				app.bundles = row.bundles
-					? row.bundles.split(',').map((bundleId) => parseInt(bundleId))
+			if (filters.bundles) {
+				const bundleRow = bundleMap[row.app_id];
+				app.bundles = bundleRow
+					? bundleRow.bundles.split(',').map((bundleId) => parseInt(bundleId))
 					: [];
 			}
 			app.last_update = Utils.formatDate(parseInt(row.last_update) * 1e3, true);
