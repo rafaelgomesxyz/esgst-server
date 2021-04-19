@@ -50,6 +50,10 @@ class Utils {
 		return iso.slice(0, 10);
 	}
 
+	static getQueryMap(queryArr, key) {
+		return Object.fromEntries(queryArr.map((item) => [item[key], item]));
+	}
+
 	static isSet(variable) {
 		return typeof variable !== 'undefined' && variable !== null;
 	}
