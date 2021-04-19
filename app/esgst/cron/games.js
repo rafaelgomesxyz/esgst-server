@@ -1,3 +1,6 @@
+const fs = require('fs');
+const path = require('path');
+
 const Pool = require('../class/Connection');
 const Utils = require('../class/Utils');
 const App = require('../routes/games/App');
@@ -49,7 +52,7 @@ async function updateGames(connection) {
       FROM games__app
       WHERE queued_for_update = TRUE
       ORDER BY last_update
-      LIMIT 200
+      LIMIT 1000
     `
 	);
 	Utils.log(jobLog, `${appRows.length} apps found!`);
@@ -118,7 +121,7 @@ async function updateGames(connection) {
       FROM games__bundle
       WHERE queued_for_update = TRUE
       ORDER BY last_update
-      LIMIT 200
+      LIMIT 1000
     `
 	);
 	Utils.log(jobLog, `${bundleRows.length} bundles found!`);
@@ -137,7 +140,7 @@ async function updateGames(connection) {
       FROM games__sub
       WHERE queued_for_update = TRUE
       ORDER BY last_update
-      LIMIT 200
+      LIMIT 1000
     `
 	);
 	Utils.log(jobLog, `${subRows.length} subs found!`);

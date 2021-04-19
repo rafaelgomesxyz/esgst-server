@@ -1,3 +1,6 @@
+const fs = require('fs');
+const path = require('path');
+
 const CustomError = require('../class/CustomError');
 const Pool = require('../class/Connection');
 const Request = require('../class/Request');
