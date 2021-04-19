@@ -98,10 +98,7 @@ class App {
 			}
 		}
 
-		const preparedIds = ids
-			.map((id) => connection.escape(id))
-			.filter((id) => id)
-			.join(', ');
+		const preparedIds = ids.map((id) => connection.escape(id)).join(',');
 		const rows = await Pool.query(
 			connection,
 			`
