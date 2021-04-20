@@ -17,11 +17,10 @@ class _Pool {
 			const row = (await Pool.query(connection, 'SHOW VARIABLES LIKE "max_user_connections"'))[0];
 			connection.end();
 
-			this._pool = mysql.createPool({
-				...defaultConfig,
-				...this._config,
-				connectionLimit: Math.floor(parseInt(row.Value) * 0.9),
-			});
+			const connectionLimit = Math.floor(parseInt(row.Value) * 0.9);
+			this._pool = mysql.createPool({ ...defaultConfig, ...this._config, connectionLimit });
+
+			console.log(`Connection limit: ${connectionLimit}`);
 		}
 
 		return new Promise((resolve, reject) => {
