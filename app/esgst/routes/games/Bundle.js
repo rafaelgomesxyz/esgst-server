@@ -31,9 +31,9 @@ class Bundle {
 		const columns = {
 			name: 'g_bn.name',
 			removed: 'g_b.removed',
-			apps: 'g_ba_j.apps',
 		};
-		const columnKeys = Object.keys(columns);
+		const columnKeys = [...Object.keys(columns), 'apps'];
+
 		const params = Object.assign(
 			{},
 			{ filters: req.query.filters || req.query.bundle_filters || '' }
@@ -47,48 +47,58 @@ class Bundle {
 			},
 		};
 		Utils.validateParams(params, validator);
+
+		const filters = {};
+		for (const columnKey of columnKeys) {
+			filters[columnKey] = true;
+		}
 		if (params.filters) {
 			const filterKeys = params.filters.split(',');
 			for (const columnKey of columnKeys) {
 				if (!filterKeys.includes(columnKey)) {
 					delete columns[columnKey];
+					delete filters[columnKey];
 				}
 			}
 		}
+
+		const preparedIds = ids.map((id) => connection.escape(id)).join(',');
 		const rows = await Pool.query(
 			connection,
 			`
-			SELECT ${[
-				'g_b.bundle_id',
-				'g_b.last_update',
-				'g_b.queued_for_update',
-				...Object.values(columns),
-			].join(', ')}
-			FROM games__bundle AS g_b
-			${
-				Utils.isSet(columns.name)
-					? `
-				INNER JOIN games__bundle_name AS g_bn
-				ON g_b.bundle_id = g_bn.bundle_id
+				SELECT ${[
+					'g_b.bundle_id',
+					...Object.values(columns),
+					'g_b.last_update',
+					'g_b.queued_for_update',
+				].join(', ')}
+				FROM games__bundle AS g_b
+				${
+					filters.name
+						? `
+								INNER JOIN games__bundle_name AS g_bn
+								ON g_b.bundle_id = g_bn.bundle_id
+							`
+						: ''
+				}
+				WHERE g_b.bundle_id IN (${preparedIds})
 			`
-					: ''
-			}
-			${
-				Utils.isSet(columns.apps)
-					? `
-				LEFT JOIN (
-					SELECT g_ba.bundle_id, GROUP_CONCAT(DISTINCT g_ba.app_id) AS apps
-					FROM games__bundle_app AS g_ba
-					GROUP BY g_ba.bundle_id
-				) AS g_ba_j
-				ON g_b.bundle_id = g_ba_j.bundle_id
-			`
-					: ''
-			}
-			WHERE ${ids.map((id) => `g_b.bundle_id = ${connection.escape(id)}`).join(' OR ')}
-			GROUP BY g_b.bundle_id
-		`
 		);
+
+		let appMap = {};
+		if (filters.apps) {
+			const appRows = await Pool.query(
+				connection,
+				`
+					SELECT g_ba.bundle_id, GROUP_CONCAT(g_ba.app_id) AS apps
+					FROM games__bundle_app AS g_ba
+					WHERE g_ba.bundle_id IN (${preparedIds})
+					GROUP BY g_ba.bundle_id
+				`
+			);
+			appMap = Utils.getQueryMap(appRows, 'bundle_id');
+		}
+
 		const bundles = [];
 		const found = [];
 		const to_queue = [];
@@ -97,14 +107,15 @@ class Bundle {
 			const bundle = {
 				bundle_id: row.bundle_id,
 			};
-			if (Utils.isSet(columns.name)) {
+			if (filters.name) {
 				bundle.name = row.name;
 			}
-			if (Utils.isSet(columns.removed)) {
+			if (filters.removed) {
 				bundle.removed = !!row.removed;
 			}
-			if (Utils.isSet(columns.apps)) {
-				bundle.apps = row.apps ? row.apps.split(',').map((appId) => parseInt(appId)) : [];
+			if (filters.apps) {
+				const appRow = appMap[row.bundle_id];
+				bundle.apps = appRow ? appRow.apps.split(',').map((appId) => parseInt(appId)) : [];
 			}
 			bundle.last_update = Utils.formatDate(parseInt(row.last_update) * 1e3, true);
 			bundle.queued_for_update = !!row.queued_for_update;
