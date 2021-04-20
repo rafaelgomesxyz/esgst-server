@@ -3,18 +3,27 @@ const defaultConfig = require('../config').connection;
 
 class _Pool {
 	constructor(config = {}) {
+		this._config = config;
 		/** @type {import('mysql').Pool} */
-		this._pool = mysql.createPool({
-			...defaultConfig,
-			...config,
-			connectionLimit: 4,
-		});
+		this._pool = null;
 	}
 
 	/**
 	 * @returns {Promise<import('mysql').PoolConnection>}
 	 */
-	getConnection() {
+	async getConnection() {
+		if (!this._pool) {
+			const connection = mysql.createConnection({ ...defaultConfig, ...this._config });
+			const row = (await Pool.query(connection, 'SHOW VARIABLES LIKE "max_user_connections"'))[0];
+			connection.end();
+
+			this._pool = mysql.createPool({
+				...defaultConfig,
+				...this._config,
+				connectionLimit: Math.floor(parseInt(row.Value) * 0.9),
+			});
+		}
+
 		return new Promise((resolve, reject) => {
 			this._pool.getConnection((err, connection) => {
 				if (err) {
