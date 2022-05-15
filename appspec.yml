@@ -4,9 +4,6 @@ files:
   - source: /
     destination: /home/ubuntu/server
 hooks:
-  BeforeInstall:
-    - location: script/install_dependencies.sh
-      timeout: 300
   ApplicationStart:
     - location: script/start_server.sh
       timeout: 300
