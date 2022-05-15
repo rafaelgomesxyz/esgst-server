@@ -1,2 +1,3 @@
 #!/bin/bash
-source ./.bash_profile && node $@
+source ~/.nvm/nvm.sh
+$(nvm which node) $@ >> ./cron.log 2>&1

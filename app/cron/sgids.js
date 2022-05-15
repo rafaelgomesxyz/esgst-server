@@ -1,6 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 
+require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
+
 const CustomError = require('../class/CustomError');
 const Pool = require('../class/Connection');
 const Request = require('../class/Request');

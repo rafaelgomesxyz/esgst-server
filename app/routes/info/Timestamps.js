@@ -33,6 +33,21 @@ class InfoTimestamps {
 			for (const row of rows) {
 				result[row['name']] = Utils.formatDate(parseInt(row['date']) * 1e3, true);
 			}
+			result.queue = {};
+			result.queue.apps = parseInt(
+				(await Pool.query(connection, 'SELECT COUNT(*) AS count FROM games__app WHERE queued_for_update = TRUE'))[0].count
+			);
+			result.queue.subs = parseInt(
+				(await Pool.query(connection, 'SELECT COUNT(*) AS count FROM games__sub WHERE queued_for_update = TRUE'))[0].count
+			);
+			result.queue.bundles = parseInt(
+				(await Pool.query(connection, 'SELECT COUNT(*) AS count FROM games__bundle WHERE queued_for_update = TRUE'))[0].count
+			);
+			const now = Date.now() / 1e3;
+			const days30 = now - 60 * 60 * 24 * 30;
+			result.queue.users = parseInt(
+				(await Pool.query(connection, `SELECT COUNT(*) AS count FROM users__uh WHERE last_check <= ${days30}`))[0].count
+			);
 			if (connection) {
 				connection.release();
 			}

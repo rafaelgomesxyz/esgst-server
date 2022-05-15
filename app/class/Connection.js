@@ -14,7 +14,7 @@ class _Pool {
 	async getConnection() {
 		if (!this._pool) {
 			const connection = mysql.createConnection({ ...defaultConfig, ...this._config });
-			const row = (await Pool.query(connection, 'SHOW VARIABLES LIKE "max_user_connections"'))[0];
+			const row = (await Pool.query(connection, 'SHOW VARIABLES LIKE "max_connections"'))[0];
 			connection.end();
 
 			const connectionLimit = Math.floor(parseInt(row.Value) * 0.9);

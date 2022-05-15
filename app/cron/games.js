@@ -1,6 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 
+require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
+
 const Pool = require('../class/Connection');
 const Utils = require('../class/Utils');
 const App = require('../routes/games/App');
@@ -52,7 +54,7 @@ async function updateGames(connection) {
       FROM games__app
       WHERE queued_for_update = TRUE
       ORDER BY last_update
-      LIMIT 1000
+      LIMIT 500
     `
 	);
 	Utils.log(jobLog, `${appRows.length} apps found!`);
@@ -74,6 +76,7 @@ async function updateGames(connection) {
 			if (err.status === 400) {
 				appsToRemove.push(appRow.app_id);
 			} else {
+				Utils.log(jobLog, `Failed: ${err.message} ${err.stack}`);
 				break;
 			}
 		}
@@ -121,7 +124,7 @@ async function updateGames(connection) {
       FROM games__bundle
       WHERE queued_for_update = TRUE
       ORDER BY last_update
-      LIMIT 1000
+      LIMIT 100
     `
 	);
 	Utils.log(jobLog, `${bundleRows.length} bundles found!`);
@@ -140,7 +143,7 @@ async function updateGames(connection) {
       FROM games__sub
       WHERE queued_for_update = TRUE
       ORDER BY last_update
-      LIMIT 1000
+      LIMIT 100
     `
 	);
 	Utils.log(jobLog, `${subRows.length} subs found!`);
@@ -162,6 +165,7 @@ async function updateGames(connection) {
 			if (err.status === 400) {
 				subsToRemove.push(subRow.sub_id);
 			} else {
+				Utils.log(jobLog, `Failed: ${err.message} ${err.stack}`);
 				break;
 			}
 		}

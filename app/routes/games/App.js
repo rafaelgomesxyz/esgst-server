@@ -393,7 +393,7 @@ class App {
 			const metacritic = apiData.metacritic;
 			let rating = null;
 			if (isStoreResponseOk && !removed) {
-				const elements = storeResponse.html.querySelectorAll('.user_reviews_summary_row');
+				const elements = storeResponse.html.querySelectorAll('.user_reviews_summary_row[data-tooltip-html]');
 				const numElements = elements.length;
 				if (numElements > 0) {
 					const text = elements[numElements - 1].dataset.tooltipHtml.replace(/[,.]/, '');
