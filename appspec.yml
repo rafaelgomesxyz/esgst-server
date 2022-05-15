@@ -3,10 +3,3 @@ os: linux
 files:
   - source: /
     destination: /home/ubuntu/server
-hooks:
-  ApplicationStart:
-    - location: script/start_server.sh
-      timeout: 300
-  ApplicationStop:
-    - location: script/stop_server.sh
-      timeout: 300
